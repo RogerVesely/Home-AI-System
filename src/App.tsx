@@ -46,6 +46,71 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
 
   const [toastMessage, setToastMessage] = useState<{title: string, body: string} | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isLoadingSeed, setIsLoadingSeed] = useState(false);
+
+  const popularHistoricoReal = async () => {
+    if (!db) return;
+    
+    const seedData = [
+      { user: 'Roger', action: 'Café', points: 1, daysAgo: 1 },
+      { user: 'Roger', action: 'Lixo', points: 1, daysAgo: 1 },
+      { user: 'Juliana', action: 'Louça', points: 2, daysAgo: 1 },
+      { user: 'Juliana', action: 'Pet', points: 1, daysAgo: 1 },
+      { user: 'Roger', action: 'Pet', points: 1, daysAgo: 2 },
+      { user: 'Juliana', action: 'Jantar', points: 3, daysAgo: 2 },
+      { user: 'Juliana', action: 'Louça', points: 2, daysAgo: 2 },
+      { user: 'Roger', action: 'Café', points: 1, daysAgo: 2 },
+      { user: 'Roger', action: 'Jantar', points: 3, daysAgo: 3 },
+      { user: 'Juliana', action: 'Limpeza', points: 3, daysAgo: 3 },
+      { user: 'Roger', action: 'Lixo', points: 1, daysAgo: 3 },
+      { user: 'Juliana', action: 'Roupa', points: 2, daysAgo: 4 },
+      { user: 'Juliana', action: 'Louça', points: 2, daysAgo: 4 },
+      { user: 'Roger', action: 'Mercado', points: 3, daysAgo: 4 },
+      { user: 'Roger', action: 'Café', points: 1, daysAgo: 5 },
+      { user: 'Juliana', action: 'Pet', points: 1, daysAgo: 5 },
+      { user: 'Roger', action: 'Carro', points: 2, daysAgo: 5 },
+      { user: 'Roger', action: 'Jantar', points: 3, daysAgo: 6 },
+      { user: 'Juliana', action: 'Louça', points: 2, daysAgo: 6 },
+      { user: 'Juliana', action: 'Outro (desfazer malas)', points: 2, daysAgo: 6 },
+      { user: 'Roger', action: 'Lixo', points: 1, daysAgo: 7 },
+      { user: 'Roger', action: 'Outro (arrumar transformador)', points: 2, daysAgo: 7 },
+      { user: 'Juliana', action: 'Roupa', points: 2, daysAgo: 7 },
+      { user: 'Juliana', action: 'Limpeza', points: 3, daysAgo: 8 },
+      { user: 'Roger', action: 'Café', points: 1, daysAgo: 8 },
+      { user: 'Roger', action: 'Mercado', points: 3, daysAgo: 9 },
+      { user: 'Juliana', action: 'Louça', points: 2, daysAgo: 9 },
+      { user: 'Juliana', action: 'Jantar', points: 3, daysAgo: 9 },
+      { user: 'Roger', action: 'Pet', points: 1, daysAgo: 10 },
+      { user: 'Roger', action: 'Lixo', points: 1, daysAgo: 10 },
+      { user: 'Juliana', action: 'Roupa', points: 2, daysAgo: 12 },
+      { user: 'Roger', action: 'Jantar', points: 3, daysAgo: 12 },
+      { user: 'Juliana', action: 'Louça', points: 2, daysAgo: 15 },
+      { user: 'Roger', action: 'Carro', points: 2, daysAgo: 15 },
+    ];
+
+    try {
+      setIsLoadingSeed(true);
+      for (const item of seedData) {
+        const date = new Date();
+        date.setDate(date.getDate() - item.daysAgo);
+        
+        await addDoc(collection(db, 'logs'), {
+          user: item.user,
+          action: item.action,
+          time: 'inserido via seed',
+          points: item.points,
+          timestamp: date,
+          status: 'ativo'
+        });
+      }
+      alert('Dados iniciais carregados com sucesso!');
+    } catch (e) {
+      console.error('Erro ao carregar dados:', e);
+      alert('Erro ao carregar dados iniciais.');
+    } finally {
+      setIsLoadingSeed(false);
+    }
+  };
 
   useEffect(() => {
     if (chatRef.current) {
@@ -645,6 +710,16 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
                             <Save className="w-4 h-4" /> Salvar Tarefa
                          </button>
                       </form>
+                   </div>
+
+                   <div className="mt-4 pt-4 border-t border-gray-100">
+                      <button
+                         onClick={popularHistoricoReal}
+                         disabled={isLoadingSeed}
+                         className="w-full bg-indigo-50 text-indigo-600 rounded-xl py-2 flex items-center justify-center gap-2 text-xs font-medium hover:bg-indigo-100 transition-colors shadow-sm"
+                      >
+                         {isLoadingSeed ? 'Carregando...' : 'Carregar Dados Iniciais'}
+                      </button>
                    </div>
                 </div>
              </motion.div>
