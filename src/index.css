@@ -1,0 +1,87 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  --bg-app: #f4f5f7;
+  --text-main: #0f172a;
+  
+  --roger-color: #0f172a; /* Deep Navy Blue */
+  --roger-shadow: rgba(15, 23, 42, 0.4);
+  
+  --juliana-color: #9d174d; /* Dark Enamel Pink (Pink-800) */
+  --juliana-shadow: rgba(157, 23, 77, 0.4);
+}
+
+body {
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Enamel finish utility for cards/panels */
+.enamel-panel {
+  background: white;
+  border-radius: 32px;
+  box-shadow:
+    0 12px 32px -4px rgba(0,0,0,0.06),
+    inset 0 2px 4px rgba(255,255,255,0.8),
+    inset 0 -2px 4px rgba(0,0,0,0.02);
+  border: 1px solid rgba(0,0,0,0.04);
+}
+
+/* Enamel finish for interactive buttons */
+.enamel-btn {
+  position: relative;
+  overflow: hidden;
+  border: none;
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.enamel-btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: linear-gradient(to bottom, rgba(255,255,255,0.15), transparent);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.enamel-btn-roger {
+  background-color: var(--roger-color);
+  color: white;
+  box-shadow: 
+    0 10px 24px -6px var(--roger-shadow),
+    inset 0 4px 8px rgba(255,255,255,0.15),
+    inset 0 -4px 8px rgba(0,0,0,0.3);
+}
+
+.enamel-btn-roger:active {
+  box-shadow: 
+    0 2px 8px -2px var(--roger-shadow),
+    inset 0 6px 12px rgba(0,0,0,0.4);
+  transform: translateY(2px);
+}
+
+.enamel-btn-juliana {
+  background-color: var(--juliana-color);
+  color: white;
+  box-shadow: 
+    0 10px 24px -6px var(--juliana-shadow),
+    inset 0 4px 8px rgba(255,255,255,0.2),
+    inset 0 -4px 8px rgba(0,0,0,0.3);
+}
+
+.enamel-btn-juliana:active {
+  box-shadow: 
+    0 2px 8px -2px var(--juliana-shadow),
+    inset 0 6px 12px rgba(0,0,0,0.4);
+  transform: translateY(2px);
+}
