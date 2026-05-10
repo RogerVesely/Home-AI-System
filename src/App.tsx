@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Eye, EyeOff, LogOut, Sparkles, User, Utensils, Droplets, Trash2, Plus, X, Shirt, ShoppingCart, Dog, Bed, Coffee, Car, Leaf, Send, Settings, AlertCircle, Save, Download, ChevronDown, ChevronUp, Minus } from 'lucide-react';
+import { Eye, EyeOff, LogOut, Sparkles, User, Utensils, Droplets, Trash2, Plus, X, Shirt, ShoppingCart, Dog, Bed, Coffee, Car, Leaf, Send, Settings, AlertCircle, Save, Download, ChevronDown, ChevronUp, Minus, Home, MessageSquare, Calendar, Bell, Bot } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { generateChatResponse, type ChatMessage } from './services/gemini';
 import { collection, onSnapshot, query, orderBy, addDoc, updateDoc, doc, serverTimestamp, setDoc, deleteDoc } from 'firebase/firestore';
@@ -26,16 +26,12 @@ export default function App() {
 }
 
 function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogout: () => void }) {
-  const [expandedSection, setExpandedSection] = useState<'top' | 'chat' | 'history' | null>('top');
-  const isTopExpanded = expandedSection === 'top';
-  const isChatExpanded = expandedSection === 'chat';
-  const isHistoryExpanded = expandedSection === 'history';
+  const [currentTab, setCurrentTab] = useState<'dashboard' | 'historico' | 'chat' | 'alertas' | 'planejamento'>('dashboard');
 
   const [isPartnerScoreVisible, setIsPartnerScoreVisible] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [scores, setScores] = useState({ Roger: 0, Juliana: 0 });
   const [tasks, setTasks] = useState<TaskDef[]>([]);
-  const [isConfigOpen, setIsConfigOpen] = useState(false);
   
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: 'initial', role: 'model', text: `Olá, ${user}! Como posso ajudar com a casa hoje?` }
@@ -348,12 +344,7 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
                   <Download className="w-3.5 h-3.5" strokeWidth={2.5} />
                 </button>
               )}
-              <button 
-                onClick={() => setIsConfigOpen(true)}
-                className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center text-gray-400 hover:text-gray-800 hover:bg-gray-100 transition-colors border border-gray-100 shadow-sm"
-              >
-                <Settings className="w-3.5 h-3.5" strokeWidth={2.5} />
-              </button>
+              {/* Settings moved to tabs */}
               <button 
                 onClick={onLogout}
                 className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center text-gray-400 hover:text-gray-800 hover:bg-gray-100 transition-colors border border-gray-100 shadow-sm"
@@ -377,355 +368,274 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
 
       {/* Main Content */}
       <main className="flex-1 px-4 pb-4 pt-2 flex flex-col gap-3 z-10 min-h-0 overflow-hidden">
-        
-        {/* 1. Card Superior (Placar + Ações Rápidas) */}
-        <section 
-          className={`enamel-panel relative overflow-hidden shrink-0 transition-opacity duration-300 flex flex-col ${isTopExpanded ? 'pb-3' : 'pb-3 cursor-pointer hover:border-gray-300'}`}
-          onClick={() => { if (!isTopExpanded) setExpandedSection('top') }}
-        >
-          {/* Subtle background glow for the active user */}
-          <div 
-            className="absolute top-10 -left-12 w-32 h-32 opacity-[0.06] blur-2xl pointer-events-none rounded-full" 
-            style={{ backgroundColor: activeColor }} 
-          />
-          
-          <div 
-            className={`bg-gray-50/80 px-4 py-2 border-b border-gray-100 flex items-center justify-between mb-3 ${isTopExpanded ? 'cursor-pointer hover:bg-gray-100' : ''}`}
-            onClick={(e) => {
-              if (isTopExpanded) {
-                e.stopPropagation();
-                setExpandedSection(null);
-              }
-            }}
-          >
-             <h2 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Pontos & Ações</h2>
-             <button className="text-gray-400 hover:text-gray-600">
-               {isTopExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-             </button>
-          </div>
-          
-          <div className="flex gap-3 px-3">
-            {/* Esquerda: Pontos */}
-            <div className={`${isTopExpanded ? 'w-[30%]' : 'w-[20%] pr-4'} flex-shrink-0 flex flex-col justify-between border-r border-gray-100 pr-2 py-1`}>
-               <div className="z-10 flex flex-col justify-center h-full">
-                 <div 
-                   className={`${isTopExpanded ? 'text-[44px]' : 'text-[22px]'} font-sans font-light leading-none tracking-tighter transition-all`} 
-                   style={{ color: activeColor }}
-                 >
-                   {activeScore}
-                 </div>
-               </div>
-               
-               {isTopExpanded && (
-                 <div className="pt-2 z-10">
-                    <div className="flex items-center gap-1 mb-1">
-                       <p className="text-[8px] text-gray-400 uppercase tracking-widest font-semibold truncate">{partner}</p>
-                       <button
-                         onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setIsPartnerScoreVisible(true); }}
-                         onPointerUp={(e) => { e.stopPropagation(); e.preventDefault(); setIsPartnerScoreVisible(false); }}
-                         onPointerLeave={(e) => { e.stopPropagation(); e.preventDefault(); setIsPartnerScoreVisible(false); }}
-                         onContextMenu={(e) => e.preventDefault()}
-                         className="w-5 h-5 rounded-full flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-400 active:bg-gray-100 transition-all outline-none cursor-pointer touch-none select-none"
-                      >
-                        {isPartnerScoreVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                      </button>
-                    </div>
-                    <div 
-                       className="text-xl font-sans font-medium leading-none tracking-tight transition-all duration-150 origin-left"
-                       style={{ 
-                         color: partnerColor,
-                         filter: isPartnerScoreVisible ? 'blur(0px)' : 'blur(4px)',
-                         opacity: isPartnerScoreVisible ? 1 : 0.4,
-                         transform: isPartnerScoreVisible ? 'scale(1.05)' : 'scale(1)'
-                       }}
-                     >
-                       {partnerScore}
-                     </div>
-                 </div>
-               )}
-            </div>
-
-            {/* Direita: Grade de Ações */}
-            <div className={`flex-1 grid grid-cols-4 ${isTopExpanded ? 'gap-1.5' : 'gap-2 max-w-[80%]'} z-10 relative pb-1`}>
-              {[
-                { icon: Utensils, label: 'Jantar' },
-                { icon: Droplets, label: 'Louça' },
-                { icon: Trash2, label: 'Lixo' },
-                { icon: Shirt, label: 'Roupa' },
-                { icon: ShoppingCart, label: 'Mercado' },
-                { icon: Dog, label: 'Pet' },
-                { icon: Sparkles, label: 'Limpeza' },
-                { icon: Bed, label: 'Cama' },
-                { icon: Coffee, label: 'Café' },
-                { icon: Car, label: 'Carro' },
-                { icon: Leaf, label: 'Plantas' },
-                { icon: Plus, label: 'Outro' }
-              ].slice(0, isTopExpanded ? 12 : 4).map((action, i) => (
-                 <motion.button 
-                   whileTap={{ scale: 0.92 }}
-                   onClick={(e) => { e.stopPropagation(); handleQuickAction(action.label); }}
-                   key={i} 
-                   className={`enamel-btn ${isRoger ? 'enamel-btn-roger' : 'enamel-btn-juliana'} flex flex-col items-center justify-center gap-0.5 rounded-xl outline-none transition-all ${isTopExpanded ? '' : 'scale-90 origin-top'}`}
-                   style={{ aspectRatio: '1/1' }}
-                 >
-                    <action.icon className="w-4 h-4 text-white/90" strokeWidth={1.5} />
-                    <span className="text-[7px] font-medium tracking-wide text-white/90 truncate w-full flex-shrink-0 text-center px-0.5">{action.label}</span>
-                 </motion.button>
-              ))}
-            </div>
-          </div>
-        </section>
-        
-        {/* 2. Área do Chatbot */}
-        <section 
-           className={`enamel-panel flex flex-col overflow-hidden relative shadow-sm transition-all duration-300 ${isChatExpanded ? 'flex-1 min-h-[140px]' : 'shrink-0 cursor-pointer hover:border-gray-300'}`}
-           onClick={() => { if (!isChatExpanded) setExpandedSection('chat') }}
-        >
-           <div 
-             className={`bg-gray-50/80 px-4 py-2 border-b border-gray-100 flex items-center justify-between ${isChatExpanded ? 'cursor-pointer hover:bg-gray-100' : ''}`}
-             onClick={(e) => {
-               if (isChatExpanded) {
-                 e.stopPropagation();
-                 setExpandedSection(null);
-               }
-             }}
-           >
-             <div className="flex items-center gap-2">
-               <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-               <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Assistente IA</span>
-             </div>
-             <button className="text-gray-400 hover:text-gray-600">
-               {isChatExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-             </button>
-           </div>
-           
-           {isChatExpanded && (
-             <div className="flex-1 overflow-y-auto p-4 space-y-3" ref={chatRef}>
-               {messages.map(msg => (
-                  <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                     <div 
-                        className={`px-3 py-2 text-xs max-w-[85%] ${
-                           msg.role === 'user' 
-                              ? 'rounded-2xl rounded-tr-sm text-white' 
-                              : 'bg-gray-100 rounded-2xl rounded-tl-sm text-gray-700'
-                        }`}
-                        style={msg.role === 'user' ? { backgroundColor: activeColor } : {}}
-                     >
-                        {msg.text}
-                     </div>
-                  </div>
-               ))}
-               {isChatLoading && (
-                  <div className="flex justify-start">
-                     <div className="bg-gray-100 px-4 py-3 rounded-2xl rounded-tl-sm flex gap-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
-                     </div>
-                  </div>
-               )}
-             </div>
-           )}
-           
-           <div className="p-2 border-t border-gray-100 bg-white">
-             <div className={`flex items-center gap-2 bg-gray-50 rounded-full pl-4 pr-1.5 border border-gray-200 focus-within:border-gray-300 focus-within:bg-white transition-colors ${isChatExpanded ? 'py-1.5' : 'py-1'}`}>
-                <input 
-                   type="text" 
-                   value={inputValue}
-                   onChange={e => setInputValue(e.target.value)}
-                   onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
-                   onFocus={() => { if(!isChatExpanded) setExpandedSection('chat') }}
-                   placeholder="Escreva um comando..." 
-                   className="bg-transparent flex-1 outline-none text-xs text-gray-800 placeholder:text-gray-400" 
-                />
-                <button 
-                   onClick={(e) => { e.stopPropagation(); handleSendMessage(); }}
-                   disabled={!inputValue.trim() || isChatLoading}
-                   className={`${isChatExpanded ? 'w-7 h-7' : 'w-6 h-6'} rounded-full flex items-center justify-center hover:opacity-80 transition-all text-white shrink-0 disabled:opacity-50`}
-                   style={{ backgroundColor: activeColor }}
-                >
-                   <Send className={`${isChatExpanded ? 'w-3 h-3 ml-[2px]' : 'w-2.5 h-2.5 ml-[1px]'}`} strokeWidth={2.5}/>
-                </button>
-             </div>
-           </div>
-        </section>
-        
-        {/* 3. Histórico de Ações */}
-        <section 
-           className={`enamel-panel flex flex-col shadow-sm relative overflow-hidden transition-all duration-300 ${isHistoryExpanded ? 'flex-1 min-h-[140px]' : 'shrink-0 cursor-pointer hover:border-gray-300'}`}
-           onClick={() => { if (!isHistoryExpanded) setExpandedSection('history') }}
-        >
-          <div 
-            className={`flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-gray-50/80 ${isHistoryExpanded ? 'cursor-pointer hover:bg-gray-100' : ''}`}
-            onClick={(e) => {
-              if (isHistoryExpanded) {
-                e.stopPropagation();
-                setExpandedSection(null);
-              }
-            }}
-          >
-             <h2 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Histórico Recente</h2>
-             <button className="text-gray-400 hover:text-gray-600">
-               {isHistoryExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-             </button>
-          </div>
-          {isHistoryExpanded && (
-            <div className="flex-1 overflow-y-auto p-3 space-y-3">
-               {history.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between group">
-                     <div className="flex items-center gap-2.5">
-                        <div 
-                           className="w-7 h-7 rounded-full flex flex-shrink-0 items-center justify-center text-white" 
-                           style={{ backgroundColor: item.user === 'Roger' ? 'var(--roger-color)' : 'var(--juliana-color)' }}
-                        >
-                            <User className="w-3.5 h-3.5" strokeWidth={2} />
-                        </div>
-                        <div>
-                           <p className="text-xs font-medium text-gray-900 leading-tight">
-                              {item.user === user ? 'Você' : item.user} <span className="font-normal text-gray-600">{item.action}</span>
-                           </p>
-                           <p className="text-[9px] text-gray-400 mt-0.5">{item.time}</p>
-                        </div>
-                     </div>
-                     
-                     <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-bold text-gray-400">+{item.points}</span>
-                        <button 
-                           onClick={() => updateDoc(doc(db, 'logs', item.id), { status: 'deletado' })}
-                           className="w-7 h-7 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
-                           aria-label="Desfazer"
-                        >
-                           <X className="w-3.5 h-3.5" strokeWidth={2.5} />
-                        </button>
-                     </div>
-                  </div>
-               ))}
-               
-               {history.length === 0 && (
-                   <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                       <p className="text-xs">Nenhum registro recente.</p>
-                   </div>
-               )}
-            </div>
-          )}
-        </section>
-      </main>
-    </motion.div>
-
-    <AnimatePresence>
-       {isConfigOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm">
-             <motion.div 
-                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                className="bg-white rounded-3xl w-full max-w-md shadow-2xl flex flex-col max-h-[85vh] overflow-hidden"
-             >
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-                   <h2 className="text-sm font-semibold text-gray-800">Configuração de Tarefas</h2>
-                   <button 
-                      onClick={() => setIsConfigOpen(false)}
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-800 hover:bg-gray-200 transition-colors"
-                   >
-                       <X className="w-4 h-4" />
-                   </button>
+        <AnimatePresence mode="wait">
+        {currentTab === 'dashboard' && (
+           <motion.div key="dashboard" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex flex-col gap-4">
+              {/* Card Superior (Placar + Ações Rápidas) */}
+              <section className="enamel-panel relative overflow-hidden shrink-0 flex flex-col pb-3">
+                <div className="absolute top-10 -left-12 w-32 h-32 opacity-[0.06] blur-2xl pointer-events-none rounded-full" style={{ backgroundColor: activeColor }} />
+                
+                <div className="bg-gray-50/80 px-4 py-2 border-b border-gray-100 flex items-center justify-between mb-3">
+                   <h2 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Pontos & Ações</h2>
                 </div>
                 
-                <div className="flex-1 overflow-y-auto p-5">
-                   {tasks.length > 0 ? (
-                      <div className="space-y-3">
-                         {tasks.map(task => (
-                            <div key={task.id} className="flex items-center justify-between bg-white border border-gray-100 p-3 rounded-2xl shadow-sm">
-                               <div>
-                                  <p className="font-semibold text-gray-800 text-sm leading-none">{task.nome_tarefa}</p>
-                                  <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-wider font-medium">
-                                     Recorrente: {task.recorrencia_dias} {task.recorrencia_dias === 1 ? 'dia' : 'dias'} • {task.pontos} {task.pontos === 1 ? 'pt' : 'pts'}
-                                  </p>
-                               </div>
-                               <button 
-                                  onClick={() => deleteDoc(doc(db, 'tasks', task.id!))}
-                                  className="w-8 h-8 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-                               >
-                                  <Trash2 className="w-4 h-4" strokeWidth={2} />
-                               </button>
-                            </div>
-                         ))}
-                      </div>
-                   ) : (
-                      <p className="text-sm text-gray-500 text-center py-4">Nenhuma tarefa cadastrada.</p>
-                   )}
-                   
-                   <div className="mt-6 pt-6 border-t border-gray-100">
-                      <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Adicionar Tarefa</h3>
-                      <form onSubmit={async (e) => {
-                         e.preventDefault();
-                         const formData = new FormData(e.currentTarget);
-                         const nome_tarefa = formData.get('nome') as string;
-                         const recorrencia_dias = parseInt(formData.get('recorrencia') as string, 10);
-                         const pontos = parseInt(formData.get('pontos') as string, 10);
-                         
-                         if (!nome_tarefa || isNaN(recorrencia_dias) || isNaN(pontos)) return;
-                         
-                         try {
-                            await addDoc(collection(db, 'tasks'), {
-                               nome_tarefa,
-                               recorrencia_dias,
-                               pontos,
-                            });
-                            e.currentTarget.reset();
-                         } catch (err) {
-                            console.error("Erro ao adicionar task", err);
-                         }
-                      }} className="space-y-3">
-                         <div className="flex gap-2">
-                            <input 
-                               name="nome"
-                               placeholder="Ex: Rancho, Limpar Casa" 
-                               required
-                               className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:border-indigo-400 focus:bg-white transition-all"
-                            />
-                         </div>
-                         <div className="flex gap-2">
-                             <input 
-                               name="recorrencia"
-                               type="number"
-                               min="1"
-                               placeholder="Dias rec." 
-                               required
-                               className="w-1/2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:border-indigo-400 focus:bg-white transition-all"
-                            />
-                            <input 
-                               name="pontos"
-                               type="number"
-                               min="1"
-                               placeholder="Pontos" 
-                               required
-                               className="w-1/2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:border-indigo-400 focus:bg-white transition-all"
-                            />
-                         </div>
-                         <button 
-                            type="submit"
-                            className="w-full bg-gray-900 text-white rounded-xl py-2 flex items-center justify-center gap-2 text-sm font-medium hover:bg-gray-800 transition-colors shadow-sm"
-                         >
-                            <Save className="w-4 h-4" /> Salvar Tarefa
-                         </button>
-                      </form>
-                   </div>
+                <div className="flex gap-3 px-3">
+                  {/* Esquerda: Pontos */}
+                  <div className="w-[30%] flex-shrink-0 flex flex-col justify-between border-r border-gray-100 pr-2 py-1">
+                     <div className="z-10 flex flex-col justify-center h-full">
+                       <div className="text-[44px] font-sans font-light leading-none tracking-tighter" style={{ color: activeColor }}>
+                         {activeScore}
+                       </div>
+                     </div>
+                     <div className="pt-2 z-10">
+                        <div className="flex items-center gap-1 mb-1">
+                           <p className="text-[8px] text-gray-400 uppercase tracking-widest font-semibold truncate">{partner}</p>
+                           <button
+                             onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setIsPartnerScoreVisible(true); }}
+                             onPointerUp={(e) => { e.stopPropagation(); e.preventDefault(); setIsPartnerScoreVisible(false); }}
+                             onPointerLeave={(e) => { e.stopPropagation(); e.preventDefault(); setIsPartnerScoreVisible(false); }}
+                             onContextMenu={(e) => e.preventDefault()}
+                             className="w-5 h-5 rounded-full flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-400 active:bg-gray-100 transition-all outline-none cursor-pointer touch-none select-none"
+                          >
+                            {isPartnerScoreVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                          </button>
+                        </div>
+                        <div className="text-xl font-sans font-medium leading-none tracking-tight transition-all duration-150 origin-left"
+                             style={{ color: partnerColor, filter: isPartnerScoreVisible ? 'blur(0px)' : 'blur(4px)', opacity: isPartnerScoreVisible ? 1 : 0.4, transform: isPartnerScoreVisible ? 'scale(1.05)' : 'scale(1)' }}>
+                           {partnerScore}
+                        </div>
+                     </div>
+                  </div>
 
-                   <div className="mt-4 pt-4 border-t border-gray-100">
-                      <button
-                         onClick={popularHistoricoReal}
-                         disabled={isLoadingSeed}
-                         className="w-full bg-indigo-50 text-indigo-600 rounded-xl py-2 flex items-center justify-center gap-2 text-xs font-medium hover:bg-indigo-100 transition-colors shadow-sm"
-                      >
-                         {isLoadingSeed ? 'Carregando...' : 'Carregar Dados Iniciais'}
-                      </button>
-                   </div>
+                  {/* Direita: Grade de Ações */}
+                  <div className="flex-1 grid grid-cols-4 gap-1.5 z-10 relative pb-1">
+                    {[
+                      { icon: Utensils, label: 'Jantar' }, { icon: Droplets, label: 'Louça' }, { icon: Trash2, label: 'Lixo' },
+                      { icon: Shirt, label: 'Roupa' }, { icon: ShoppingCart, label: 'Mercado' }, { icon: Dog, label: 'Pet' },
+                      { icon: Sparkles, label: 'Limpeza' }, { icon: Bed, label: 'Cama' }, { icon: Coffee, label: 'Café' },
+                      { icon: Car, label: 'Carro' }, { icon: Leaf, label: 'Plantas' }, { icon: Plus, label: 'Outro' }
+                    ].map((action, i) => (
+                       <motion.button 
+                         whileTap={{ scale: 0.92 }} onClick={(e) => { e.stopPropagation(); handleQuickAction(action.label); }}
+                         key={i} className={`enamel-btn ${isRoger ? 'enamel-btn-roger' : 'enamel-btn-juliana'} flex flex-col items-center justify-center gap-0.5 rounded-xl outline-none transition-all`}
+                         style={{ aspectRatio: '1/1' }}>
+                          <action.icon className="w-4 h-4 text-white/90" strokeWidth={1.5} />
+                          <span className="text-[7px] font-medium tracking-wide text-white/90 truncate w-full flex-shrink-0 text-center px-0.5">{action.label}</span>
+                       </motion.button>
+                    ))}
+                  </div>
                 </div>
-             </motion.div>
-          </div>
-       )}
-    </AnimatePresence>
+              </section>
+           </motion.div>
+        )}
+        
+        {currentTab === 'chat' && (
+           <motion.div key="chat" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-full">
+              <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/80 flex items-center justify-between">
+                 <div className="flex items-center gap-2">
+                   <Sparkles className="w-4 h-4 text-indigo-400" />
+                   <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest">IA Concierge</span>
+                 </div>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-4 space-y-3" ref={chatRef}>
+                 {messages.map(msg => (
+                    <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                       <div 
+                          className={`px-3 py-2 text-sm max-w-[85%] ${
+                             msg.role === 'user' 
+                                ? 'rounded-2xl rounded-tr-sm text-white' 
+                                : 'bg-gray-100 rounded-2xl rounded-tl-sm text-gray-700'
+                          }`}
+                          style={msg.role === 'user' ? { backgroundColor: activeColor } : {}}
+                       >
+                          {msg.text}
+                       </div>
+                    </div>
+                 ))}
+                 {isChatLoading && (
+                    <div className="flex justify-start">
+                       <div className="bg-gray-100 px-4 py-3 rounded-2xl rounded-tl-sm flex gap-1">
+                          <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                       </div>
+                    </div>
+                 )}
+              </div>
+              
+              <div className="p-3 border-t border-gray-100 bg-white">
+                 <div className="flex items-center gap-2 bg-gray-50 rounded-full pl-4 pr-1.5 py-1.5 border border-gray-200 focus-within:border-gray-300 focus-within:bg-white transition-colors">
+                    <input 
+                       type="text" 
+                       value={inputValue}
+                       onChange={e => setInputValue(e.target.value)}
+                       onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
+                       placeholder="Comando de voz ou texto..." 
+                       className="bg-transparent flex-1 outline-none text-sm text-gray-800 placeholder:text-gray-400" 
+                    />
+                    <button 
+                       onClick={(e) => { e.stopPropagation(); handleSendMessage(); }}
+                       disabled={!inputValue.trim() || isChatLoading}
+                       className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 transition-all text-white shrink-0 disabled:opacity-50"
+                       style={{ backgroundColor: activeColor }}
+                    >
+                       <Send className="w-3.5 h-3.5 ml-[2px]" strokeWidth={2.5}/>
+                    </button>
+                 </div>
+              </div>
+           </motion.div>
+        )}
+        
+        {currentTab === 'historico' && (
+           <motion.div key="historico" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-full">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50/80">
+                 <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Histórico Completo</h2>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                 {history.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between group">
+                       <div className="flex items-center gap-3">
+                          <div 
+                             className="w-8 h-8 rounded-full flex flex-shrink-0 items-center justify-center text-white" 
+                             style={{ backgroundColor: item.user === 'Roger' ? 'var(--roger-color)' : 'var(--juliana-color)' }}
+                          >
+                              <User className="w-4 h-4" strokeWidth={2} />
+                          </div>
+                          <div>
+                             <p className="text-xs font-medium text-gray-900 leading-tight">
+                                {item.user === user ? 'Você' : item.user} <span className="font-normal text-gray-600">{item.action}</span>
+                             </p>
+                             <p className="text-[10px] text-gray-400 mt-0.5">{item.time}</p>
+                          </div>
+                       </div>
+                       
+                       <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-gray-400">+{item.points}</span>
+                          <button 
+                             onClick={() => updateDoc(doc(db, 'logs', item.id), { status: 'deletado' })}
+                             className="w-8 h-8 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
+                             aria-label="Desfazer"
+                          >
+                             <X className="w-4 h-4" strokeWidth={2.5} />
+                          </button>
+                       </div>
+                    </div>
+                 ))}
+                 
+                 {history.length === 0 && (
+                     <div className="py-10 flex flex-col items-center justify-center text-gray-400">
+                         <p className="text-sm">Nenhum registro recente.</p>
+                     </div>
+                 )}
+              </div>
+           </motion.div>
+        )}
+        {currentTab === 'planejamento' && (
+           <motion.div key="planejamento" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-full">
+              <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/80">
+                 <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Rotinas & Base</h2>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4">
+                  {tasks.length > 0 ? (
+                     <div className="space-y-3 mb-6">
+                        {tasks.map(task => (
+                           <div key={task.id} className="flex items-center justify-between bg-white border border-gray-100 p-3 rounded-2xl shadow-sm">
+                              <div>
+                                 <p className="font-semibold text-gray-800 text-sm leading-none">{task.nome_tarefa}</p>
+                                 <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-wider font-medium">
+                                    Recorrente: {task.recorrencia_dias} {task.recorrencia_dias === 1 ? 'dia' : 'dias'} • {task.pontos} {task.pontos === 1 ? 'pt' : 'pts'}
+                                 </p>
+                              </div>
+                              <button onClick={() => deleteDoc(doc(db, 'tasks', task.id!))} className="w-8 h-8 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+                                 <Trash2 className="w-4 h-4" strokeWidth={2} />
+                              </button>
+                           </div>
+                        ))}
+                     </div>
+                  ) : (
+                     <p className="text-sm text-gray-500 text-center py-4">Nenhuma rotina base configurada.</p>
+                  )}
+                  
+                  <div className="pt-4 border-t border-gray-100">
+                     <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Adicionar Nova Base</h3>
+                     <form onSubmit={async (e) => {
+                        e.preventDefault();
+                        const formData = new FormData(e.currentTarget);
+                        const nome_tarefa = formData.get('nome') as string;
+                        const recorrencia_dias = parseInt(formData.get('recorrencia') as string, 10);
+                        const pontos = parseInt(formData.get('pontos') as string, 10);
+                        if (!nome_tarefa || isNaN(recorrencia_dias) || isNaN(pontos)) return;
+                        try {
+                           await addDoc(collection(db, 'tasks'), { nome_tarefa, recorrencia_dias, pontos });
+                           e.currentTarget.reset();
+                        } catch (err) { console.error("Erro ao adicionar task", err); }
+                     }} className="space-y-3">
+                        <input name="nome" placeholder="Nome (Ex: Limpar Quintal)" required className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-indigo-400 transition-all" />
+                        <div className="flex gap-2">
+                           <input name="recorrencia" type="number" min="1" placeholder="Dias rec." required className="w-1/2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800" />
+                           <input name="pontos" type="number" min="1" placeholder="Pontos" required className="w-1/2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800" />
+                        </div>
+                        <button type="submit" className="w-full bg-gray-900 text-white rounded-xl py-2 flex items-center justify-center gap-2 text-sm font-medium hover:bg-gray-800 transition-colors shadow-sm">
+                           <Save className="w-4 h-4" /> Salvar
+                        </button>
+                     </form>
+                  </div>
+
+                  <div className="mt-6 pt-6 border-t border-gray-100">
+                      <button onClick={popularHistoricoReal} disabled={isLoadingSeed} className="w-full bg-indigo-50 text-indigo-600 rounded-xl py-2 flex items-center justify-center gap-2 text-xs font-medium hover:bg-indigo-100 transition-colors shadow-sm">
+                         {isLoadingSeed ? 'Carregando...' : 'Carregar Dados Iniciais (Simulação)'}
+                      </button>
+                  </div>
+              </div>
+           </motion.div>
+        )}
+
+        {currentTab === 'alertas' && (
+           <motion.div key="alertas" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-full">
+              <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/80">
+                 <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Mural de Alertas</h2>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-center text-center">
+                 <div className="w-16 h-16 rounded-full bg-purple-50 flex items-center justify-center mb-4 text-purple-400 border border-purple-100">
+                    <Bell className="w-8 h-8" />
+                 </div>
+                 <h3 className="text-sm font-semibold text-gray-800 mb-1">Nenhum Alerta Ativo</h3>
+                 <p className="text-xs text-gray-500 max-w-[200px]">Os avisos do assistente IA e notificações importantes aparecerão aqui.</p>
+              </div>
+           </motion.div>
+        )}
+      </AnimatePresence>
+      </main>
+
+      {/* Tabs Bottom Navigation */}
+      <nav className="absolute bottom-0 inset-x-0 h-[70px] bg-white border-t border-gray-100 flex items-center justify-between px-6 z-[100] rounded-t-3xl shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.05)]">
+        <button onClick={() => setCurrentTab('dashboard')} className={`flex flex-col items-center gap-1 w-12 ${currentTab === 'dashboard' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
+           <Home className="w-5 h-5" strokeWidth={currentTab === 'dashboard' ? 2.5 : 2} />
+           <span className="text-[9px] font-medium tracking-wide">Início</span>
+        </button>
+        <button onClick={() => setCurrentTab('historico')} className={`flex flex-col items-center gap-1 w-12 ${currentTab === 'historico' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
+           <Calendar className="w-5 h-5" strokeWidth={currentTab === 'historico' ? 2.5 : 2} />
+           <span className="text-[9px] font-medium tracking-wide">Logs</span>
+        </button>
+        
+        {/* Center Floating Action Button for Chat */}
+        <div className="relative -top-5">
+           <button onClick={() => setCurrentTab('chat')} className="w-14 h-14 rounded-full flex items-center justify-center text-white shadow-xl hover:scale-105 active:scale-95 transition-all outline-none" style={{ backgroundColor: currentTab === 'chat' ? activeColor : 'var(--roger-color)' }}>
+              <Bot className="w-6 h-6" strokeWidth={2} />
+           </button>
+        </div>
+
+        <button onClick={() => setCurrentTab('alertas')} className={`flex flex-col items-center gap-1 w-12 ${currentTab === 'alertas' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
+           <Bell className="w-5 h-5" strokeWidth={currentTab === 'alertas' ? 2.5 : 2} />
+           <span className="text-[9px] font-medium tracking-wide">Mural</span>
+        </button>
+        <button onClick={() => setCurrentTab('planejamento')} className={`flex flex-col items-center gap-1 w-12 ${currentTab === 'planejamento' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
+           <Settings className="w-5 h-5" strokeWidth={currentTab === 'planejamento' ? 2.5 : 2} />
+           <span className="text-[9px] font-medium tracking-wide">Rotina</span>
+        </button>
+      </nav>
+    </motion.div>
 
     <AnimatePresence>
        {toastMessage && (
@@ -748,8 +658,20 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
 }
 
 function Gateway({ onSelectUser }: { onSelectUser: (user: UserProfile) => void }) {
+  const [isHuman, setIsHuman] = useState(false);
+  const [checking, setChecking] = useState(false);
+
+  const handleCaptcha = () => {
+    if (isHuman || checking) return;
+    setChecking(true);
+    setTimeout(() => {
+        setIsHuman(true);
+        setChecking(false);
+    }, 1200);
+  };
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden bg-[var(--bg-app)]">
       {/* Subtle atmospheric background */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150vw] h-[150vw] max-w-[800px] max-h-[800px] rounded-full bg-gradient-to-tr from-indigo-100/30 w/50 to-pink-100/30 blur-[100px] pointer-events-none -z-10" />
 
@@ -759,27 +681,52 @@ function Gateway({ onSelectUser }: { onSelectUser: (user: UserProfile) => void }
         transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
         className="w-full max-w-sm"
       >
-        <div className="text-center mb-12">
+        <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white shadow-sm mb-6 border border-gray-100">
-            <Sparkles className="w-7 h-7 text-gray-800" strokeWidth={1.5} />
+            <Sparkles className="w-7 h-7 text-indigo-500" strokeWidth={1.5} />
           </div>
           <h1 className="text-[32px] font-light tracking-tight text-gray-900 mb-2 leading-none">Home AI</h1>
-          <p className="text-gray-400 font-medium text-xs tracking-[0.15em] uppercase">Quem está acessando?</p>
+          <p className="text-gray-400 font-medium text-xs tracking-[0.15em] uppercase">Autenticação Segura</p>
         </div>
 
-        <div className="flex flex-col gap-6">
+        {/* Captcha Box */}
+        <div className="mb-8">
+           <div 
+             onClick={handleCaptcha}
+             className={`bg-white border rounded-xl p-4 flex items-center justify-between cursor-pointer transition-all shadow-sm ${isHuman ? 'border-green-200 bg-green-50/30' : 'border-gray-200 hover:border-gray-300'}`}
+           >
+              <div className="flex items-center gap-3">
+                 <div className={`w-6 h-6 rounded flex items-center justify-center border-2 transition-colors ${isHuman ? 'border-green-500 bg-green-500' : 'border-gray-300'}`}>
+                    {checking ? (
+                       <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, ease: "linear", duration: 1 }} className="w-3 h-3 border-2 border-white border-t-transparent rounded-full" />
+                    ) : isHuman ? (
+                       <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    ) : null}
+                 </div>
+                 <span className={`text-sm font-medium ${isHuman ? 'text-green-700' : 'text-gray-600'}`}>
+                    {isHuman ? 'Verificado com sucesso' : 'Sou humano'}
+                 </span>
+              </div>
+              <div className="flex flex-col items-center">
+                 <img src="https://www.gstatic.com/recaptcha/api2/logo_48.png" alt="reCAPTCHA" className="w-6 opacity-30 grayscale" />
+                 <span className="text-[8px] text-gray-400 mt-1">reCAPTCHA</span>
+              </div>
+           </div>
+        </div>
+
+        <div className={`flex flex-col gap-4 transition-all duration-500 ${isHuman ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-50 translate-y-4 pointer-events-none'}`}>
+          <p className="text-center text-xs font-medium text-gray-400 uppercase tracking-widest mb-1">Selecione seu perfil</p>
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => onSelectUser('Roger')}
-            className="enamel-btn enamel-btn-roger group flex items-center p-5 rounded-3xl w-full"
+            className="enamel-btn enamel-btn-roger group flex items-center p-4 rounded-3xl w-full"
           >
-            <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center mr-5 group-hover:bg-white/20 transition-colors shadow-inner">
-              <User className="w-6 h-6 text-white/90" strokeWidth={2} />
+            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center mr-4 group-hover:bg-white/20 transition-colors shadow-inner">
+              <User className="w-5 h-5 text-white/90" strokeWidth={2} />
             </div>
             <div className="text-left">
-              <span className="block text-xl font-medium tracking-tight">Roger</span>
-              <span className="block text-sm text-white/50 mt-0.5 tracking-wide">Acessar perfil</span>
+              <span className="block text-lg font-medium tracking-tight">Roger</span>
             </div>
           </motion.button>
 
@@ -787,14 +734,13 @@ function Gateway({ onSelectUser }: { onSelectUser: (user: UserProfile) => void }
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => onSelectUser('Juliana')}
-            className="enamel-btn enamel-btn-juliana group flex items-center p-5 rounded-3xl w-full"
+            className="enamel-btn enamel-btn-juliana group flex items-center p-4 rounded-3xl w-full"
           >
-            <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center mr-5 group-hover:bg-white/20 transition-colors shadow-inner">
-              <User className="w-6 h-6 text-white/90" strokeWidth={2} />
+            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center mr-4 group-hover:bg-white/20 transition-colors shadow-inner">
+              <User className="w-5 h-5 text-white/90" strokeWidth={2} />
             </div>
             <div className="text-left">
-              <span className="block text-xl font-medium tracking-tight">Juliana</span>
-              <span className="block text-sm text-white/50 mt-0.5 tracking-wide">Acessar perfil</span>
+              <span className="block text-lg font-medium tracking-tight">Juliana</span>
             </div>
           </motion.button>
         </div>
