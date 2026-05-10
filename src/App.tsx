@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Eye, EyeOff, LogOut, Sparkles, User, Utensils, Droplets, Trash2, Plus, X, Shirt, ShoppingCart, Dog, Bed, Coffee, Car, Leaf, Send, Settings, AlertCircle, Save, Download, ChevronDown, ChevronUp, Minus, Home, MessageSquare, Calendar, Bell, Bot } from 'lucide-react';
+import { Eye, EyeOff, LogOut, Sparkles, User, Utensils, Droplets, Trash2, Plus, X, Shirt, ShoppingCart, Dog, Bed, Coffee, Car, Leaf, Settings, AlertCircle, Save, Download, Home, Calendar, Bell, Target, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { generateChatResponse, type ChatMessage } from './services/gemini';
 import { collection, onSnapshot, query, orderBy, addDoc, updateDoc, doc, serverTimestamp, setDoc, deleteDoc } from 'firebase/firestore';
@@ -13,7 +13,55 @@ export interface TaskDef {
   nome_tarefa: string;
   recorrencia_dias: number;
   pontos: number;
+  icone?: string;
 }
+
+const AVAILABLE_ICONS = [
+  { name: 'Utensils', icon: Utensils },
+  { name: 'Droplets', icon: Droplets },
+  { name: 'Trash2', icon: Trash2 },
+  { name: 'Shirt', icon: Shirt },
+  { name: 'ShoppingCart', icon: ShoppingCart },
+  { name: 'Dog', icon: Dog },
+  { name: 'Sparkles', icon: Sparkles },
+  { name: 'Bed', icon: Bed },
+  { name: 'Coffee', icon: Coffee },
+  { name: 'Car', icon: Car },
+  { name: 'Leaf', icon: Leaf },
+];
+
+const ICON_MAP: Record<string, any> = {
+  jantar: Utensils,
+  louça: Droplets,
+  louca: Droplets,
+  lixo: Trash2,
+  roupa: Shirt,
+  mercado: ShoppingCart,
+  compras: ShoppingCart,
+  pet: Dog,
+  cachorro: Dog,
+  limp: Sparkles,
+  faxin: Sparkles,
+  casa: Sparkles,
+  cama: Bed,
+  café: Coffee,
+  cafe: Coffee,
+  carro: Car,
+  planta: Leaf,
+  jardim: Leaf,
+};
+
+const getIconForTask = (name: string, iconName?: string) => {
+   if (iconName) {
+      const match = AVAILABLE_ICONS.find(i => i.name === iconName);
+      if (match) return match.icon;
+   }
+   const key = name.toLowerCase();
+   for (const [k, v] of Object.entries(ICON_MAP)) {
+      if (key.includes(k)) return v;
+   }
+   return Plus;
+};
 
 export default function App() {
   const [activeUser, setActiveUser] = useState<UserProfile>(null);
@@ -26,93 +74,41 @@ export default function App() {
 }
 
 function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogout: () => void }) {
-  const [currentTab, setCurrentTab] = useState<'dashboard' | 'historico' | 'chat' | 'alertas' | 'planejamento'>('dashboard');
+  const [currentTab, setCurrentTab] = useState<'dashboard' | 'historico' | 'planejamento' | 'alertas' | 'configuracoes'>('dashboard');
 
   const [isPartnerScoreVisible, setIsPartnerScoreVisible] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
-  const [scores, setScores] = useState({ Roger: 0, Juliana: 0 });
+  const [historyFilter, setHistoryFilter] = useState<'Tudo' | 'Roger' | 'Juliana'>('Tudo');
   const [tasks, setTasks] = useState<TaskDef[]>([]);
-  
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: 'initial', role: 'model', text: `Olá, ${user}! Como posso ajudar com a casa hoje?` }
-  ]);
-  const [inputValue, setInputValue] = useState('');
-  const [isChatLoading, setIsChatLoading] = useState(false);
-  const chatRef = useRef<HTMLDivElement>(null);
+
+  // Dashboard State
+  const [dashboardTimeFilter, setDashboardTimeFilter] = useState<'Dia' | 'Semana' | 'Mês'>('Dia');
+  const [expandedDashboardSection, setExpandedDashboardSection] = useState<'placar' | 'atividades' | null>('placar');
+
+  // Config Form State
+  const [newTaskName, setNewTaskName] = useState('');
+  const [newSelectedIcon, setNewSelectedIcon] = useState('Utensils');
+  const [newTaskDifficulty, setNewTaskDifficulty] = useState(1);
+  const [expandedConfigSection, setExpandedConfigSection] = useState<'gerenciar' | 'recorrentes' | null>('gerenciar');
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{ type: 'log' | 'task', id: string, label: string } | null>(null);
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirmation) return;
+    const { type, id } = deleteConfirmation;
+    try {
+      if (type === 'task') {
+        await deleteDoc(doc(db, 'tasks', id));
+      } else if (type === 'log') {
+        await updateDoc(doc(db, 'logs', id), { status: 'deletado' });
+      }
+    } catch(err) {
+      console.error("Erro ao deletar", err);
+    }
+    setDeleteConfirmation(null);
+  };
 
   const [toastMessage, setToastMessage] = useState<{title: string, body: string} | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isLoadingSeed, setIsLoadingSeed] = useState(false);
-
-  const popularHistoricoReal = async () => {
-    if (!db) return;
-    
-    const seedData = [
-      { user: 'Roger', action: 'Café', points: 1, daysAgo: 1 },
-      { user: 'Roger', action: 'Lixo', points: 1, daysAgo: 1 },
-      { user: 'Juliana', action: 'Louça', points: 2, daysAgo: 1 },
-      { user: 'Juliana', action: 'Pet', points: 1, daysAgo: 1 },
-      { user: 'Roger', action: 'Pet', points: 1, daysAgo: 2 },
-      { user: 'Juliana', action: 'Jantar', points: 3, daysAgo: 2 },
-      { user: 'Juliana', action: 'Louça', points: 2, daysAgo: 2 },
-      { user: 'Roger', action: 'Café', points: 1, daysAgo: 2 },
-      { user: 'Roger', action: 'Jantar', points: 3, daysAgo: 3 },
-      { user: 'Juliana', action: 'Limpeza', points: 3, daysAgo: 3 },
-      { user: 'Roger', action: 'Lixo', points: 1, daysAgo: 3 },
-      { user: 'Juliana', action: 'Roupa', points: 2, daysAgo: 4 },
-      { user: 'Juliana', action: 'Louça', points: 2, daysAgo: 4 },
-      { user: 'Roger', action: 'Mercado', points: 3, daysAgo: 4 },
-      { user: 'Roger', action: 'Café', points: 1, daysAgo: 5 },
-      { user: 'Juliana', action: 'Pet', points: 1, daysAgo: 5 },
-      { user: 'Roger', action: 'Carro', points: 2, daysAgo: 5 },
-      { user: 'Roger', action: 'Jantar', points: 3, daysAgo: 6 },
-      { user: 'Juliana', action: 'Louça', points: 2, daysAgo: 6 },
-      { user: 'Juliana', action: 'Outro (desfazer malas)', points: 2, daysAgo: 6 },
-      { user: 'Roger', action: 'Lixo', points: 1, daysAgo: 7 },
-      { user: 'Roger', action: 'Outro (arrumar transformador)', points: 2, daysAgo: 7 },
-      { user: 'Juliana', action: 'Roupa', points: 2, daysAgo: 7 },
-      { user: 'Juliana', action: 'Limpeza', points: 3, daysAgo: 8 },
-      { user: 'Roger', action: 'Café', points: 1, daysAgo: 8 },
-      { user: 'Roger', action: 'Mercado', points: 3, daysAgo: 9 },
-      { user: 'Juliana', action: 'Louça', points: 2, daysAgo: 9 },
-      { user: 'Juliana', action: 'Jantar', points: 3, daysAgo: 9 },
-      { user: 'Roger', action: 'Pet', points: 1, daysAgo: 10 },
-      { user: 'Roger', action: 'Lixo', points: 1, daysAgo: 10 },
-      { user: 'Juliana', action: 'Roupa', points: 2, daysAgo: 12 },
-      { user: 'Roger', action: 'Jantar', points: 3, daysAgo: 12 },
-      { user: 'Juliana', action: 'Louça', points: 2, daysAgo: 15 },
-      { user: 'Roger', action: 'Carro', points: 2, daysAgo: 15 },
-    ];
-
-    try {
-      setIsLoadingSeed(true);
-      for (const item of seedData) {
-        const date = new Date();
-        date.setDate(date.getDate() - item.daysAgo);
-        
-        await addDoc(collection(db, 'logs'), {
-          user: item.user,
-          action: item.action,
-          time: 'inserido via seed',
-          points: item.points,
-          timestamp: date,
-          status: 'ativo'
-        });
-      }
-      alert('Dados iniciais carregados com sucesso!');
-    } catch (e) {
-      console.error('Erro ao carregar dados:', e);
-      alert('Erro ao carregar dados iniciais.');
-    } finally {
-      setIsLoadingSeed(false);
-    }
-  };
-
-  useEffect(() => {
-    if (chatRef.current) {
-      chatRef.current.scrollTop = chatRef.current.scrollHeight;
-    }
-  }, [messages, isChatLoading]);
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -179,16 +175,11 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
     // Subscribe to logs collection
     const q = query(collection(db, 'logs'), orderBy('timestamp', 'desc'));
     const unsubscribeLogs = onSnapshot(q, (snapshot) => {
-       let rogerPoints = 0;
-       let julianaPoints = 0;
        const newHistory: any[] = [];
        
        snapshot.forEach(docSnap => {
           const data = docSnap.data();
           if (data.status === 'deletado') return; // Ignore soft-deleted items
-          
-          if (data.user === 'Roger') rogerPoints += (data.points || 1);
-          if (data.user === 'Juliana') julianaPoints += (data.points || 1);
           
           newHistory.push({
              id: docSnap.id,
@@ -196,7 +187,6 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
           });
        });
        
-       setScores({ Roger: rogerPoints, Juliana: julianaPoints });
        setHistory(newHistory);
     }, (error) => {
        console.error("Erro ao sincronizar logs Firestore:", error);
@@ -220,65 +210,6 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
      return { task, isOverdue, nextDue, lastDate };
   }).filter(t => t?.isOverdue);
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() || isChatLoading) return;
-
-    const userText = inputValue;
-    setInputValue('');
-    
-    const newUserMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: userText };
-    setMessages(prev => [...prev, newUserMsg]);
-    setIsChatLoading(true);
-
-    const replyText = await generateChatResponse(user, messages.filter(m => m.id !== 'initial'), userText, 
-    async (data) => {
-      console.log('Ferramenta registrar_tarefa chamada com dados:', data);
-      
-      try {
-        let matchedPoints = 1;
-        const matchedTask = tasks.find(t => t.nome_tarefa.toLowerCase() === (data.nome_tarefa || '').toLowerCase());
-        if (matchedTask) matchedPoints = matchedTask.pontos;
-
-        await addDoc(collection(db, 'logs'), {
-          user: data.usuario || user,
-          action: data.nome_tarefa,
-          time: data.data_hora,
-          points: matchedPoints,
-          status: 'ativo',
-          timestamp: serverTimestamp()
-        });
-      } catch (err) {
-        console.error("Erro ao inserir log via IA:", err);
-      }
-    },
-    async (data) => {
-       console.log('Ferramenta consultar_status_tarefa chamada:', data);
-       const requestedTask = data.nome_tarefa;
-       
-       const matchedTask = tasks.find(t => t.nome_tarefa.toLowerCase() === (requestedTask || '').toLowerCase());
-       const lastLog = history.find(h => h.action.toLowerCase() === (requestedTask || '').toLowerCase());
-       
-       if (!lastLog) {
-          if (matchedTask) return `A tarefa '${requestedTask}' existe, mas não há registro recente de execução.`;
-          return `A tarefa '${requestedTask}' não foi encontrada no histórico nem nas configurações.`;
-       }
-       
-       const lastDate = lastLog.timestamp?.toDate() || new Date();
-       const msg = `Última vez executada: ${lastDate.toLocaleDateString()} por ${lastLog.user}.`;
-       
-       if (matchedTask && matchedTask.recorrencia_dias > 0) {
-          const nextDue = new Date(lastDate.getTime() + matchedTask.recorrencia_dias * 24 * 60 * 60 * 1000);
-          return `${msg} Deve ser feita novamente em ${nextDue.toLocaleDateString()} (Recorrência: ${matchedTask.recorrencia_dias} dias).`;
-       }
-       
-       return msg;
-    });
-    
-    const newModelMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: replyText };
-    setMessages(prev => [...prev, newModelMsg]);
-    setIsChatLoading(false);
-  };
-  
   const isRoger = user === 'Roger';
   const partner = isRoger ? 'Juliana' : 'Roger';
   
@@ -286,8 +217,32 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
   const activeBgColor = isRoger ? 'rgba(15, 23, 42, 0.3)' : 'rgba(157, 23, 77, 0.3)';
   const partnerColor = isRoger ? 'var(--juliana-color)' : 'var(--roger-color)';
 
-  const activeScore = scores[user as 'Roger' | 'Juliana'];
-  const partnerScore = scores[partner as 'Roger' | 'Juliana'];
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  
+  const startOfWeek = new Date(startOfDay);
+  startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+  
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const filterDate = dashboardTimeFilter === 'Dia' ? startOfDay : dashboardTimeFilter === 'Semana' ? startOfWeek : startOfMonth;
+
+  let activeScore = 0;
+  let partnerScore = 0;
+
+  history.forEach(item => {
+     if (!item.timestamp || !item.timestamp.toDate) return;
+     const itemDate = item.timestamp.toDate();
+     if (itemDate >= filterDate) {
+        if (item.user === user) activeScore += (item.points || 1);
+        if (item.user === partner) partnerScore += (item.points || 1);
+     }
+  });
+
+  const todaysHistory = history.filter(item => {
+     if (!item.timestamp || !item.timestamp.toDate) return false;
+     return item.timestamp.toDate() >= startOfDay;
+  }).slice(0, 5);
 
   const handleQuickAction = async (label: string) => {
      try {
@@ -306,6 +261,24 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
      } catch (err) {
         console.error("Erro ao registrar ação rápida:", err);
      }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTaskName.trim()) return;
+    try {
+      await addDoc(collection(db, 'tasks'), {
+        nome_tarefa: newTaskName.trim(),
+        pontos: newTaskDifficulty,
+        icone: newSelectedIcon,
+        recorrencia_dias: 0
+      });
+      setNewTaskName('');
+      setNewSelectedIcon('Utensils');
+      setNewTaskDifficulty(1);
+    } catch (err) {
+      console.error("Erro ao adicionar task", err);
+    }
   };
 
   return (
@@ -370,15 +343,40 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
       <main className="flex-1 px-4 pb-4 pt-2 flex flex-col gap-3 z-10 min-h-0 overflow-hidden">
         <AnimatePresence mode="wait">
         {currentTab === 'dashboard' && (
-           <motion.div key="dashboard" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex flex-col gap-4">
+           <motion.div key="dashboard" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex flex-col gap-4 flex-1 overflow-y-auto hide-scrollbar pb-24">
               {/* Card Superior (Placar + Ações Rápidas) */}
-              <section className="enamel-panel relative overflow-hidden shrink-0 flex flex-col pb-3">
+              <section className={`enamel-panel relative overflow-hidden shrink-0 flex flex-col transition-all duration-300 ${expandedDashboardSection === 'placar' ? 'pb-3' : 'cursor-pointer hover:border-gray-300'}`}>
                 <div className="absolute top-10 -left-12 w-32 h-32 opacity-[0.06] blur-2xl pointer-events-none rounded-full" style={{ backgroundColor: activeColor }} />
                 
-                <div className="bg-gray-50/80 px-4 py-2 border-b border-gray-100 flex items-center justify-between mb-3">
-                   <h2 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Pontos & Ações</h2>
+                <div 
+                   className={`bg-gray-50/80 px-4 flex items-center justify-between border-b border-gray-100 transition-all cursor-pointer ${expandedDashboardSection === 'placar' ? 'mb-3 py-2' : 'py-3'}`}
+                   onClick={() => setExpandedDashboardSection(prev => prev === 'placar' ? null : 'placar')}
+                >
+                   <div className="flex items-center gap-2">
+                      <h2 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Pontos & Ações</h2>
+                   </div>
+                   {expandedDashboardSection === 'placar' ? (
+                       <div className="flex bg-gray-200/50 p-0.5 rounded-lg">
+                          {['Dia', 'Semana', 'Mês'].map(f => (
+                             <button 
+                               key={f}
+                               onClick={(e) => { e.stopPropagation(); setDashboardTimeFilter(f as any); }}
+                               className={`text-[8px] font-semibold uppercase tracking-wider px-2 py-1 rounded-md transition-all ${dashboardTimeFilter === f ? 'bg-white shadow-sm text-gray-800' : 'text-gray-400 hover:text-gray-600'}`}
+                             >
+                                {f}
+                             </button>
+                          ))}
+                       </div>
+                   ) : (
+                       <button className="text-gray-400">
+                          <ChevronDown className="w-5 h-5" />
+                       </button>
+                   )}
                 </div>
                 
+                <AnimatePresence>
+                {expandedDashboardSection === 'placar' && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
                 <div className="flex gap-3 px-3">
                   {/* Esquerda: Pontos */}
                   <div className="w-[30%] flex-shrink-0 flex flex-col justify-between border-r border-gray-100 pr-2 py-1">
@@ -410,14 +408,12 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
                   {/* Direita: Grade de Ações */}
                   <div className="flex-1 grid grid-cols-4 gap-1.5 z-10 relative pb-1">
                     {[
-                      { icon: Utensils, label: 'Jantar' }, { icon: Droplets, label: 'Louça' }, { icon: Trash2, label: 'Lixo' },
-                      { icon: Shirt, label: 'Roupa' }, { icon: ShoppingCart, label: 'Mercado' }, { icon: Dog, label: 'Pet' },
-                      { icon: Sparkles, label: 'Limpeza' }, { icon: Bed, label: 'Cama' }, { icon: Coffee, label: 'Café' },
-                      { icon: Car, label: 'Carro' }, { icon: Leaf, label: 'Plantas' }, { icon: Plus, label: 'Outro' }
+                      ...tasks.map(t => ({ icon: getIconForTask(t.nome_tarefa, t.icone), label: t.nome_tarefa, isOther: false })),
+                      ...(tasks.some(t => t.nome_tarefa.toLowerCase() === 'outro') ? [] : [{ icon: Plus, label: 'Outro', isOther: true }])
                     ].map((action, i) => (
                        <motion.button 
                          whileTap={{ scale: 0.92 }} onClick={(e) => { e.stopPropagation(); handleQuickAction(action.label); }}
-                         key={i} className={`enamel-btn ${isRoger ? 'enamel-btn-roger' : 'enamel-btn-juliana'} flex flex-col items-center justify-center gap-0.5 rounded-xl outline-none transition-all`}
+                         key={i} className={`enamel-btn ${isRoger ? 'enamel-btn-roger' : 'enamel-btn-juliana'} flex flex-col items-center justify-center gap-0.5 rounded-xl outline-none transition-all ${action.isOther ? 'opacity-80' : ''}`}
                          style={{ aspectRatio: '1/1' }}>
                           <action.icon className="w-4 h-4 text-white/90" strokeWidth={1.5} />
                           <span className="text-[7px] font-medium tracking-wide text-white/90 truncate w-full flex-shrink-0 text-center px-0.5">{action.label}</span>
@@ -425,65 +421,56 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
                     ))}
                   </div>
                 </div>
+                </motion.div>
+                )}
+                </AnimatePresence>
               </section>
-           </motion.div>
-        )}
-        
-        {currentTab === 'chat' && (
-           <motion.div key="chat" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-full">
-              <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/80 flex items-center justify-between">
-                 <div className="flex items-center gap-2">
-                   <Sparkles className="w-4 h-4 text-indigo-400" />
-                   <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest">IA Concierge</span>
-                 </div>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto p-4 space-y-3" ref={chatRef}>
-                 {messages.map(msg => (
-                    <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                       <div 
-                          className={`px-3 py-2 text-sm max-w-[85%] ${
-                             msg.role === 'user' 
-                                ? 'rounded-2xl rounded-tr-sm text-white' 
-                                : 'bg-gray-100 rounded-2xl rounded-tl-sm text-gray-700'
-                          }`}
-                          style={msg.role === 'user' ? { backgroundColor: activeColor } : {}}
-                       >
-                          {msg.text}
-                       </div>
+
+              {/* Accordion: Atividade de Hoje */}
+              <section className={`enamel-panel flex flex-col shrink-0 transition-all duration-300 rounded-3xl overflow-hidden ${expandedDashboardSection === 'atividades' ? 'py-3' : 'cursor-pointer hover:border-gray-300'}`}>
+                 <div 
+                    className={`px-4 flex items-center justify-between transition-all cursor-pointer ${expandedDashboardSection === 'atividades' ? 'mb-3' : 'py-3'}`}
+                    onClick={() => setExpandedDashboardSection(prev => prev === 'atividades' ? null : 'atividades')}
+                 >
+                    <div className="flex items-center gap-2">
+                       <h2 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Atividade de Hoje</h2>
                     </div>
-                 ))}
-                 {isChatLoading && (
-                    <div className="flex justify-start">
-                       <div className="bg-gray-100 px-4 py-3 rounded-2xl rounded-tl-sm flex gap-1">
-                          <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                          <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                          <div className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
-                       </div>
-                    </div>
-                 )}
-              </div>
-              
-              <div className="p-3 border-t border-gray-100 bg-white">
-                 <div className="flex items-center gap-2 bg-gray-50 rounded-full pl-4 pr-1.5 py-1.5 border border-gray-200 focus-within:border-gray-300 focus-within:bg-white transition-colors">
-                    <input 
-                       type="text" 
-                       value={inputValue}
-                       onChange={e => setInputValue(e.target.value)}
-                       onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
-                       placeholder="Comando de voz ou texto..." 
-                       className="bg-transparent flex-1 outline-none text-sm text-gray-800 placeholder:text-gray-400" 
-                    />
-                    <button 
-                       onClick={(e) => { e.stopPropagation(); handleSendMessage(); }}
-                       disabled={!inputValue.trim() || isChatLoading}
-                       className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 transition-all text-white shrink-0 disabled:opacity-50"
-                       style={{ backgroundColor: activeColor }}
-                    >
-                       <Send className="w-3.5 h-3.5 ml-[2px]" strokeWidth={2.5}/>
+                    <button className="text-gray-400">
+                       {expandedDashboardSection === 'atividades' ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                     </button>
                  </div>
-              </div>
+
+                 <AnimatePresence>
+                 {expandedDashboardSection === 'atividades' && (
+                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="px-4 overflow-hidden flex flex-col gap-2">
+                    {todaysHistory.length > 0 ? todaysHistory.map((item) => {
+                       const TaskIcon = getIconForTask(item.action);
+                       return (
+                          <div key={item.id} className="flex items-center bg-gray-50/50 border border-gray-100 p-2.5 rounded-2xl gap-3">
+                             <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border border-gray-100/50 shadow-sm text-white" style={{ backgroundColor: item.user === 'Roger' ? 'var(--roger-color)' : 'var(--juliana-color)' }}>
+                                <TaskIcon className="w-3.5 h-3.5" strokeWidth={2.5} />
+                             </div>
+                             <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-gray-800 text-xs leading-none truncate">{item.action}</p>
+                                <p className="text-[9px] text-gray-400 mt-0.5">{item.user} • {item.timestamp?.toDate ? item.timestamp.toDate().toLocaleString('pt-BR', { timeStyle: 'short' }) : 'agora'}</p>
+                             </div>
+                             <span className="text-[10px] font-bold text-gray-400">+{item.points}</span>
+                          </div>
+                       )
+                    }) : (
+                       <p className="text-xs text-gray-400 text-center py-4 bg-gray-50 rounded-2xl">Nenhuma atividade registrada hoje.</p>
+                    )}
+                    
+                    <button 
+                       onClick={() => setCurrentTab('historico')}
+                       className="mt-1 w-full text-[10px] font-semibold text-indigo-500 uppercase tracking-wider py-2 hover:bg-indigo-50 rounded-xl transition-colors"
+                    >
+                       Ver histórico completo &rarr;
+                    </button>
+                 </motion.div>
+                 )}
+                 </AnimatePresence>
+              </section>
            </motion.div>
         )}
         
@@ -491,9 +478,20 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
            <motion.div key="historico" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-full">
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50/80">
                  <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Histórico Completo</h2>
+                 <div className="flex bg-gray-200/50 p-0.5 rounded-lg">
+                    {['Tudo', 'Roger', 'Juliana'].map(f => (
+                       <button 
+                         key={f}
+                         onClick={() => setHistoryFilter(f as any)}
+                         className={`text-[9px] font-semibold uppercase tracking-wider px-2 py-1 rounded-md transition-all ${historyFilter === f ? 'bg-white shadow-sm text-gray-800' : 'text-gray-400 hover:text-gray-600'}`}
+                       >
+                          {f}
+                       </button>
+                    ))}
+                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                 {history.map((item) => (
+                 {history.filter(h => historyFilter === 'Tudo' || h.user === historyFilter).map((item) => (
                     <div key={item.id} className="flex items-center justify-between group">
                        <div className="flex items-center gap-3">
                           <div 
@@ -506,14 +504,16 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
                              <p className="text-xs font-medium text-gray-900 leading-tight">
                                 {item.user === user ? 'Você' : item.user} <span className="font-normal text-gray-600">{item.action}</span>
                              </p>
-                             <p className="text-[10px] text-gray-400 mt-0.5">{item.time}</p>
+                             <p className="text-[10px] text-gray-400 mt-0.5">
+                                {item.timestamp?.toDate ? item.timestamp.toDate().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : item.time}
+                             </p>
                           </div>
                        </div>
                        
                        <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-gray-400">+{item.points}</span>
                           <button 
-                             onClick={() => updateDoc(doc(db, 'logs', item.id), { status: 'deletado' })}
+                             onClick={() => setDeleteConfirmation({ type: 'log', id: item.id, label: `${item.action} (${item.user})` })}
                              className="w-8 h-8 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
                              aria-label="Desfazer"
                           >
@@ -531,113 +531,262 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
               </div>
            </motion.div>
         )}
-        {currentTab === 'planejamento' && (
-           <motion.div key="planejamento" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-full">
-              <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/80">
-                 <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Rotinas & Base</h2>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4">
-                  {tasks.length > 0 ? (
-                     <div className="space-y-3 mb-6">
-                        {tasks.map(task => (
-                           <div key={task.id} className="flex items-center justify-between bg-white border border-gray-100 p-3 rounded-2xl shadow-sm">
-                              <div>
-                                 <p className="font-semibold text-gray-800 text-sm leading-none">{task.nome_tarefa}</p>
-                                 <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-wider font-medium">
-                                    Recorrente: {task.recorrencia_dias} {task.recorrencia_dias === 1 ? 'dia' : 'dias'} • {task.pontos} {task.pontos === 1 ? 'pt' : 'pts'}
-                                 </p>
-                              </div>
-                              <button onClick={() => deleteDoc(doc(db, 'tasks', task.id!))} className="w-8 h-8 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
-                                 <Trash2 className="w-4 h-4" strokeWidth={2} />
-                              </button>
-                           </div>
-                        ))}
-                     </div>
-                  ) : (
-                     <p className="text-sm text-gray-500 text-center py-4">Nenhuma rotina base configurada.</p>
-                  )}
-                  
-                  <div className="pt-4 border-t border-gray-100">
-                     <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Adicionar Nova Base</h3>
-                     <form onSubmit={async (e) => {
-                        e.preventDefault();
-                        const formData = new FormData(e.currentTarget);
-                        const nome_tarefa = formData.get('nome') as string;
-                        const recorrencia_dias = parseInt(formData.get('recorrencia') as string, 10);
-                        const pontos = parseInt(formData.get('pontos') as string, 10);
-                        if (!nome_tarefa || isNaN(recorrencia_dias) || isNaN(pontos)) return;
-                        try {
-                           await addDoc(collection(db, 'tasks'), { nome_tarefa, recorrencia_dias, pontos });
-                           e.currentTarget.reset();
-                        } catch (err) { console.error("Erro ao adicionar task", err); }
-                     }} className="space-y-3">
-                        <input name="nome" placeholder="Nome (Ex: Limpar Quintal)" required className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-indigo-400 transition-all" />
-                        <div className="flex gap-2">
-                           <input name="recorrencia" type="number" min="1" placeholder="Dias rec." required className="w-1/2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800" />
-                           <input name="pontos" type="number" min="1" placeholder="Pontos" required className="w-1/2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800" />
-                        </div>
-                        <button type="submit" className="w-full bg-gray-900 text-white rounded-xl py-2 flex items-center justify-center gap-2 text-sm font-medium hover:bg-gray-800 transition-colors shadow-sm">
-                           <Save className="w-4 h-4" /> Salvar
-                        </button>
-                     </form>
-                  </div>
 
-                  <div className="mt-6 pt-6 border-t border-gray-100">
-                      <button onClick={popularHistoricoReal} disabled={isLoadingSeed} className="w-full bg-indigo-50 text-indigo-600 rounded-xl py-2 flex items-center justify-center gap-2 text-xs font-medium hover:bg-indigo-100 transition-colors shadow-sm">
-                         {isLoadingSeed ? 'Carregando...' : 'Carregar Dados Iniciais (Simulação)'}
-                      </button>
-                  </div>
+        {currentTab === 'planejamento' && (
+           <motion.div key="planejamento" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-full items-center justify-center text-center p-6">
+              <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center mb-4 border border-gray-100">
+                 <span className="text-2xl">🛠️</span>
               </div>
+              <h2 className="text-lg font-medium text-gray-800 mb-1">Em Construção</h2>
+              <p className="text-xs text-gray-500 max-w-[200px]">A área de planejamento familiar estará disponível nas próximas versões.</p>
            </motion.div>
         )}
 
         {currentTab === 'alertas' && (
-           <motion.div key="alertas" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-full">
-              <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/80">
-                 <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Mural de Alertas</h2>
+           <motion.div key="alertas" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-full items-center justify-center text-center p-6">
+              <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center mb-4 border border-gray-100">
+                 <span className="text-2xl">🛠️</span>
               </div>
-              <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-center text-center">
-                 <div className="w-16 h-16 rounded-full bg-purple-50 flex items-center justify-center mb-4 text-purple-400 border border-purple-100">
-                    <Bell className="w-8 h-8" />
-                 </div>
-                 <h3 className="text-sm font-semibold text-gray-800 mb-1">Nenhum Alerta Ativo</h3>
-                 <p className="text-xs text-gray-500 max-w-[200px]">Os avisos do assistente IA e notificações importantes aparecerão aqui.</p>
-              </div>
+              <h2 className="text-lg font-medium text-gray-800 mb-1">Em Construção</h2>
+              <p className="text-xs text-gray-500 max-w-[200px]">O mural interativo de alertas será implementado em breve.</p>
+           </motion.div>
+        )}
+
+        {currentTab === 'configuracoes' && (
+           <motion.div key="configuracoes" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex flex-col gap-4 flex-1 overflow-y-auto hide-scrollbar pb-24">
+                 
+                 {/* Accordion: Gerenciar Tarefas */}
+                 <section className={`enamel-panel flex flex-col shrink-0 transition-all duration-300 rounded-3xl overflow-hidden ${expandedConfigSection === 'gerenciar' ? 'py-3' : 'cursor-pointer hover:border-gray-300'}`}>
+                    <div 
+                       className={`bg-gray-50/80 px-4 flex items-center justify-between border-b border-gray-100 transition-all cursor-pointer ${expandedConfigSection === 'gerenciar' ? 'mb-3 py-2' : 'py-3'}`}
+                       onClick={() => setExpandedConfigSection(prev => prev === 'gerenciar' ? null : 'gerenciar')}
+                    >
+                       <div className="flex items-center gap-2">
+                           <div className="w-6 h-6 rounded-lg bg-white flex items-center justify-center text-gray-400 border border-gray-100 shadow-sm">
+                              <Target className="w-3.5 h-3.5" />
+                           </div>
+                           <h2 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Gerenciar Tarefas</h2>
+                       </div>
+                       <button className="text-gray-400">
+                          {expandedConfigSection === 'gerenciar' ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                       </button>
+                    </div>
+
+                    <AnimatePresence>
+                    {expandedConfigSection === 'gerenciar' && (
+                       <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="px-4 space-y-6 overflow-hidden">
+                          {/* Form de Cadastro */}
+                          <form onSubmit={handleCreateTask} className="bg-gray-50/50 border border-gray-100 rounded-3xl p-4 shadow-inner space-y-5">
+                             <div>
+                                <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Nome</label>
+                                <input 
+                                   value={newTaskName}
+                                   onChange={e => setNewTaskName(e.target.value)}
+                                   placeholder="Ex: Arrumar Cama" 
+                                   required 
+                                   className="w-full bg-white border border-gray-200 rounded-2xl px-4 py-3 text-sm text-gray-800 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium placeholder:font-normal shadow-sm" 
+                                />
+                             </div>
+
+                             <div>
+                                <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Ícone</label>
+                                <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-2 px-1 -mx-1 snap-x">
+                                   {AVAILABLE_ICONS.map(({ name, icon: Icon }) => (
+                                      <button
+                                         key={name}
+                                         type="button"
+                                         onClick={() => setNewSelectedIcon(name)}
+                                         className={`snap-start shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-300 ${newSelectedIcon === name ? 'text-white shadow-md scale-105' : 'bg-white text-gray-400 hover:bg-gray-50 border border-gray-100 shadow-sm'}`}
+                                         style={newSelectedIcon === name ? { backgroundColor: activeColor } : {}}
+                                      >
+                                         <Icon className="w-5 h-5" strokeWidth={newSelectedIcon === name ? 2.5 : 2} />
+                                      </button>
+                                   ))}
+                                </div>
+                             </div>
+
+                             <div>
+                                <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Dificuldade (Pontos)</label>
+                                <div className="flex gap-2">
+                                   {[1, 2, 3, 4, 5].map(pt => (
+                                      <button
+                                         key={pt}
+                                         type="button"
+                                         onClick={() => setNewTaskDifficulty(pt)}
+                                         className={`flex-1 h-12 rounded-2xl flex items-center justify-center font-bold transition-all duration-300 ${newTaskDifficulty === pt ? 'text-white shadow-md scale-105' : 'bg-white text-gray-400 hover:bg-gray-50 border border-gray-100 shadow-sm'}`}
+                                         style={newTaskDifficulty === pt ? { backgroundColor: activeColor } : {}}
+                                      >
+                                         {pt}
+                                      </button>
+                                   ))}
+                                </div>
+                             </div>
+
+                             <button 
+                               type="submit" 
+                               disabled={!newTaskName.trim()}
+                               className={`enamel-btn ${isRoger ? 'enamel-btn-roger' : 'enamel-btn-juliana'} w-full rounded-2xl py-3.5 flex items-center justify-center gap-2 text-sm font-semibold transition-all disabled:opacity-50`}
+                             >
+                                <Plus className="w-4 h-4" strokeWidth={2.5} /> Adicionar
+                             </button>
+                          </form>
+
+                          {/* Lista Atual */}
+                          <div className="space-y-3">
+                             <div className="flex items-center justify-between mb-2">
+                                <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Ações Mapeadas</h3>
+                                <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-lg">{tasks.length} {tasks.length === 1 ? 'item' : 'itens'}</span>
+                             </div>
+                             {tasks.length > 0 ? (
+                                <div className="grid gap-2">
+                                   {tasks.map(task => {
+                                      const TaskIcon = getIconForTask(task.nome_tarefa, task.icone);
+                                      return (
+                                         <div key={task.id} className="flex items-center bg-gray-50/50 border border-gray-100 p-3 rounded-2xl gap-3 transition-all hover:bg-gray-50">
+                                            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white text-gray-500 shrink-0 border border-gray-100 shadow-sm">
+                                               <TaskIcon className="w-4 h-4" strokeWidth={2} />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                               <p className="font-semibold text-gray-800 text-sm leading-tight truncate">{task.nome_tarefa}</p>
+                                               <div className="flex items-center gap-1.5 mt-1 min-w-0">
+                                                  <div className="flex items-center gap-0.5">
+                                                     {[...Array(5)].map((_, i) => (
+                                                        <div key={i} className={`w-1 h-1 rounded-full ${i < task.pontos ? 'bg-indigo-400' : 'bg-gray-300'}`} />
+                                                     ))}
+                                                  </div>
+                                                  <span className="text-[9px] text-gray-400 font-medium whitespace-nowrap uppercase">
+                                                     {task.pontos} {task.pontos === 1 ? 'pt' : 'pts'}
+                                                  </span>
+                                               </div>
+                                            </div>
+                                            <button 
+                                              onClick={() => setDeleteConfirmation({ type: 'task', id: task.id!, label: task.nome_tarefa })} 
+                                              className="w-8 h-8 rounded-xl flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
+                                            >
+                                               <Trash2 className="w-4 h-4" strokeWidth={2} />
+                                            </button>
+                                         </div>
+                                      )
+                                   })}
+                                </div>
+                             ) : (
+                                <div className="border border-dashed border-gray-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center">
+                                   <div className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center mb-2">
+                                      <Target className="w-4 h-4 text-gray-400" />
+                                   </div>
+                                   <p className="text-[11px] text-gray-500 font-medium">Nenhuma tarefa criada</p>
+                                </div>
+                             )}
+                          </div>
+                          <div className="h-2"></div>
+                       </motion.div>
+                    )}
+                    </AnimatePresence>
+                 </section>
+
+                 {/* Accordion: Recorrentes */}
+                 <section className={`enamel-panel flex flex-col shrink-0 transition-all duration-300 rounded-3xl overflow-hidden ${expandedConfigSection === 'recorrentes' ? 'py-3' : 'cursor-pointer hover:border-gray-300'}`}>
+                    <div 
+                       className={`bg-gray-50/80 px-4 flex items-center justify-between border-b border-gray-100 transition-all cursor-pointer ${expandedConfigSection === 'recorrentes' ? 'mb-3 py-2' : 'py-3'}`}
+                       onClick={() => setExpandedConfigSection(prev => prev === 'recorrentes' ? null : 'recorrentes')}
+                    >
+                       <div className="flex items-center gap-2">
+                           <div className="w-6 h-6 rounded-lg bg-white flex items-center justify-center text-gray-400 border border-gray-100 shadow-sm">
+                              <Calendar className="w-3.5 h-3.5" />
+                           </div>
+                           <h2 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Tarefas Recorrentes</h2>
+                       </div>
+                       <button className="text-gray-400">
+                          {expandedConfigSection === 'recorrentes' ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                       </button>
+                    </div>
+
+                    <AnimatePresence>
+                    {expandedConfigSection === 'recorrentes' && (
+                       <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="px-4 overflow-hidden">
+                           <div className="bg-gradient-to-br from-indigo-50/50 to-purple-50/50 border border-indigo-100/50 rounded-2xl p-6 text-center shadow-inner relative overflow-hidden">
+                              <div className="absolute -top-10 -right-10 w-32 h-32 bg-indigo-100 rounded-full blur-3xl opacity-50 pointer-events-none" />
+                              <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center mb-3 mx-auto shadow-sm border border-indigo-50 relative z-10 text-indigo-400">
+                                  <Calendar className="w-6 h-6" strokeWidth={1.5} />
+                              </div>
+                              <h4 className="text-sm font-semibold text-gray-800 mb-2 relative z-10">🚧 Em Construção</h4>
+                              <p className="text-xs text-gray-500 relative z-10 leading-relaxed max-w-[240px] mx-auto">
+                                 Em breve você poderá agendar tarefas de Limpeza Pesada, fechar a semana e programar lembretes.
+                              </p>
+                           </div>
+                           <div className="h-2"></div>
+                       </motion.div>
+                    )}
+                    </AnimatePresence>
+                 </section>
+
            </motion.div>
         )}
       </AnimatePresence>
       </main>
 
       {/* Tabs Bottom Navigation */}
-      <nav className="absolute bottom-0 inset-x-0 h-[70px] bg-white border-t border-gray-100 flex items-center justify-between px-6 z-[100] rounded-t-3xl shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.05)]">
-        <button onClick={() => setCurrentTab('dashboard')} className={`flex flex-col items-center gap-1 w-12 ${currentTab === 'dashboard' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
+      <nav className="absolute bottom-0 inset-x-0 h-[70px] bg-white border-t border-gray-100 flex items-center justify-around px-2 z-[100] rounded-t-3xl shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.05)]">
+        <button onClick={() => setCurrentTab('dashboard')} className={`flex flex-col items-center justify-center gap-1 w-14 h-full ${currentTab === 'dashboard' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
            <Home className="w-5 h-5" strokeWidth={currentTab === 'dashboard' ? 2.5 : 2} />
            <span className="text-[9px] font-medium tracking-wide">Início</span>
         </button>
-        <button onClick={() => setCurrentTab('historico')} className={`flex flex-col items-center gap-1 w-12 ${currentTab === 'historico' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
+        <button onClick={() => setCurrentTab('historico')} className={`flex flex-col items-center justify-center gap-1 w-14 h-full ${currentTab === 'historico' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
            <Calendar className="w-5 h-5" strokeWidth={currentTab === 'historico' ? 2.5 : 2} />
-           <span className="text-[9px] font-medium tracking-wide">Logs</span>
+           <span className="text-[9px] font-medium tracking-wide">Histórico</span>
         </button>
-        
-        {/* Center Floating Action Button for Chat */}
-        <div className="relative -top-5">
-           <button onClick={() => setCurrentTab('chat')} className="w-14 h-14 rounded-full flex items-center justify-center text-white shadow-xl hover:scale-105 active:scale-95 transition-all outline-none" style={{ backgroundColor: currentTab === 'chat' ? activeColor : 'var(--roger-color)' }}>
-              <Bot className="w-6 h-6" strokeWidth={2} />
-           </button>
-        </div>
-
-        <button onClick={() => setCurrentTab('alertas')} className={`flex flex-col items-center gap-1 w-12 ${currentTab === 'alertas' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
+        <button onClick={() => setCurrentTab('planejamento')} className={`flex flex-col items-center justify-center gap-1 w-14 h-full ${currentTab === 'planejamento' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
+           <Target className="w-5 h-5" strokeWidth={currentTab === 'planejamento' ? 2.5 : 2} />
+           <span className="text-[9px] font-medium tracking-wide">Planos</span>
+        </button>
+        <button onClick={() => setCurrentTab('alertas')} className={`flex flex-col items-center justify-center gap-1 w-14 h-full ${currentTab === 'alertas' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
            <Bell className="w-5 h-5" strokeWidth={currentTab === 'alertas' ? 2.5 : 2} />
-           <span className="text-[9px] font-medium tracking-wide">Mural</span>
+           <span className="text-[9px] font-medium tracking-wide">Alertas</span>
         </button>
-        <button onClick={() => setCurrentTab('planejamento')} className={`flex flex-col items-center gap-1 w-12 ${currentTab === 'planejamento' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
-           <Settings className="w-5 h-5" strokeWidth={currentTab === 'planejamento' ? 2.5 : 2} />
-           <span className="text-[9px] font-medium tracking-wide">Rotina</span>
+        <button onClick={() => setCurrentTab('configuracoes')} className={`flex flex-col items-center justify-center gap-1 w-14 h-full ${currentTab === 'configuracoes' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
+           <Settings className="w-5 h-5" strokeWidth={currentTab === 'configuracoes' ? 2.5 : 2} />
+           <span className="text-[9px] font-medium tracking-wide">Config</span>
         </button>
       </nav>
     </motion.div>
 
     <AnimatePresence>
+       {deleteConfirmation && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm">
+             <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                className="bg-white rounded-3xl w-full max-w-[320px] shadow-2xl p-6 flex flex-col items-center text-center border border-gray-100"
+             >
+                <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mb-4 border border-red-100">
+                    <Trash2 className="w-8 h-8 text-red-500" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                   {deleteConfirmation.type === 'task' ? 'Excluir Tarefa?' : 'Remover Registro?'}
+                </h3>
+                <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+                   {deleteConfirmation.type === 'task' 
+                     ? `Deseja excluir permanentemente a tarefa "${deleteConfirmation.label}"?` 
+                     : `Deseja remover este registro do histórico permanentemente?`}
+                </p>
+                <div className="flex gap-3 w-full">
+                   <button 
+                      onClick={() => setDeleteConfirmation(null)}
+                      className="flex-1 py-3.5 rounded-2xl font-medium text-sm text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200 transition-colors"
+                   >
+                      Cancelar
+                   </button>
+                   <button 
+                      onClick={handleDeleteConfirm}
+                      className="flex-1 py-3.5 rounded-2xl font-medium text-sm text-white bg-red-500 hover:bg-red-600 shadow-[0_4px_14px_0_rgba(239,68,68,0.39)] transition-all"
+                   >
+                      Confirmar
+                   </button>
+                </div>
+             </motion.div>
+          </div>
+       )}
        {toastMessage && (
           <motion.div 
              initial={{ opacity: 0, y: -20 }}
@@ -660,6 +809,8 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
 function Gateway({ onSelectUser }: { onSelectUser: (user: UserProfile) => void }) {
   const [isHuman, setIsHuman] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   const handleCaptcha = () => {
     if (isHuman || checking) return;
@@ -669,6 +820,8 @@ function Gateway({ onSelectUser }: { onSelectUser: (user: UserProfile) => void }
         setChecking(false);
     }, 1200);
   };
+
+  const isFormValid = email.length > 0 && password.length > 0 && isHuman;
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden bg-[var(--bg-app)]">
@@ -681,7 +834,7 @@ function Gateway({ onSelectUser }: { onSelectUser: (user: UserProfile) => void }
         transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
         className="w-full max-w-sm"
       >
-        <div className="text-center mb-10">
+        <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white shadow-sm mb-6 border border-gray-100">
             <Sparkles className="w-7 h-7 text-indigo-500" strokeWidth={1.5} />
           </div>
@@ -689,8 +842,26 @@ function Gateway({ onSelectUser }: { onSelectUser: (user: UserProfile) => void }
           <p className="text-gray-400 font-medium text-xs tracking-[0.15em] uppercase">Autenticação Segura</p>
         </div>
 
+        {/* Mock Login Fields */}
+        <div className="flex flex-col gap-3 mb-6">
+           <input 
+             type="text" 
+             value={email}
+             onChange={e => setEmail(e.target.value)}
+             placeholder="E-mail da Família" 
+             className="w-full bg-white/60 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all shadow-[inset_0_1px_3px_rgba(0,0,0,0.02)] backdrop-blur-sm"
+           />
+           <input 
+             type="password" 
+             value={password}
+             onChange={e => setPassword(e.target.value)}
+             placeholder="Senha de Acesso" 
+             className="w-full bg-white/60 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all shadow-[inset_0_1px_3px_rgba(0,0,0,0.02)] backdrop-blur-sm"
+           />
+        </div>
+
         {/* Captcha Box */}
-        <div className="mb-8">
+        <div className="mb-6">
            <div 
              onClick={handleCaptcha}
              className={`bg-white border rounded-xl p-4 flex items-center justify-between cursor-pointer transition-all shadow-sm ${isHuman ? 'border-green-200 bg-green-50/30' : 'border-gray-200 hover:border-gray-300'}`}
@@ -714,35 +885,33 @@ function Gateway({ onSelectUser }: { onSelectUser: (user: UserProfile) => void }
            </div>
         </div>
 
-        <div className={`flex flex-col gap-4 transition-all duration-500 ${isHuman ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-50 translate-y-4 pointer-events-none'}`}>
-          <p className="text-center text-xs font-medium text-gray-400 uppercase tracking-widest mb-1">Selecione seu perfil</p>
+        <div className={`flex flex-col gap-3 transition-all duration-500 ${isFormValid ? 'opacity-100 translate-y-0 pointer-events-auto filter-none' : 'opacity-40 translate-y-4 pointer-events-none grayscale blur-[1px]'}`}>
+          <p className="text-center text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Entrar como</p>
+          <div className="grid grid-cols-2 gap-3">
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => onSelectUser('Roger')}
-            className="enamel-btn enamel-btn-roger group flex items-center p-4 rounded-3xl w-full"
+             className="enamel-btn enamel-btn-roger group flex flex-col items-center justify-center py-4 rounded-2xl w-full"
           >
-            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center mr-4 group-hover:bg-white/20 transition-colors shadow-inner">
+            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center mb-2 group-hover:bg-white/20 transition-colors shadow-inner">
               <User className="w-5 h-5 text-white/90" strokeWidth={2} />
             </div>
-            <div className="text-left">
-              <span className="block text-lg font-medium tracking-tight">Roger</span>
-            </div>
+            <span className="block text-sm font-medium tracking-tight">Roger</span>
           </motion.button>
 
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => onSelectUser('Juliana')}
-            className="enamel-btn enamel-btn-juliana group flex items-center p-4 rounded-3xl w-full"
+            className="enamel-btn enamel-btn-juliana group flex flex-col items-center justify-center py-4 rounded-2xl w-full"
           >
-            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center mr-4 group-hover:bg-white/20 transition-colors shadow-inner">
+            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center mb-2 group-hover:bg-white/20 transition-colors shadow-inner">
               <User className="w-5 h-5 text-white/90" strokeWidth={2} />
             </div>
-            <div className="text-left">
-              <span className="block text-lg font-medium tracking-tight">Juliana</span>
-            </div>
+            <span className="block text-sm font-medium tracking-tight">Juliana</span>
           </motion.button>
+          </div>
         </div>
       </motion.div>
     </div>
