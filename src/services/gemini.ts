@@ -13,12 +13,12 @@ export async function generateChatResponse(
   userProfile: 'Roger' | 'Juliana',
   messages: ChatMessage[],
   newMessageText: string,
-  onRegistrarTarefa?: (dados: any) => void,
-  onConsultarTarefa?: (dados: any) => string | Promise<string>
+  onRegistrarTarefa?: (dados: any) => string | Promise<string>,
+  onEnviarAlerta?: (dados: any) => void | Promise<void>
 ): Promise<string> {
-  const rogerPrompt = "Você é o Home AI, o assistente inteligente da casa. O usuário atual é o Roger. Suas respostas devem ser: extremamente curtas, diretas, objetivas, organizadas em tópicos e estritamente lógicas. Sem enrolação e sem cumprimentos adicionais. O momento atual é " + new Date().toLocaleString() + ". Ao realizar ações ou consultar status, mantenha a objetividade.";
+  const rogerPrompt = "Você é o Home AI, o assistente inteligente da casa de Roger e Juliana. Sua função principal é gerenciar as tarefas da casa. O usuário atual é o Roger. Suas respostas devem ser: extremamente curtas, diretas, objetivas, organizadas em tópicos e estritamente lógicas. Sem enrolação e sem cumprimentos adicionais. O momento atual é " + new Date().toLocaleString() + ". Entenda referências de tempo como 'ontem', 'hoje de manhã', 'agora'. Deduz a que tarefa o usuário se refere com inteligência (ex: se ele disser 'lavei a louça', refira-se à tarefa 'Louça' ou 'Limpeza').";
   
-  const julianaPrompt = "Você é o Home AI, o assistente inteligente da casa. A usuária atual é a Juliana. Suas respostas devem ser: amigáveis, prestativas, conversacionais e com um tom acolhedor e atencioso. O momento atual é " + new Date().toLocaleString() + ". Ao realizar ações ou consultar status, explique o contexto de forma carinhosa.";
+  const julianaPrompt = "Você é o Home AI, o assistente inteligente da casa de Roger e Juliana. Sua função principal é gerenciar as tarefas da casa. A usuária atual é a Juliana. Suas respostas devem ser: amigáveis, prestativas, conversacionais e com um tom acolhedor e atencioso. O momento atual é " + new Date().toLocaleString() + ". Entenda referências de tempo como 'ontem', 'hoje de manhã', 'agora'. Deduz a que tarefa o usuário se refere com inteligência (ex: se ela disser 'lavei a louça', refira-se à tarefa 'Louça' ou 'Limpeza').";
 
   const systemInstruction = userProfile === 'Roger' ? rogerPrompt : julianaPrompt;
 
@@ -39,26 +39,29 @@ export async function generateChatResponse(
                 functionDeclarations: [
                     {
                         name: 'registrar_tarefa',
-                        description: 'Registra uma tarefa realizada pelo usuário na casa.',
+                        description: 'Registra uma tarefa realizada pelo usuário na casa. Pode também cadastrar a tarefa se ela for nova.',
                         parameters: {
                             type: Type.OBJECT,
                             properties: {
-                                nome_tarefa: { type: Type.STRING, description: "O que foi feito (ex: 'lavou a Louça', 'Lixo', 'Jantar')" },
+                                nome_tarefa: { type: Type.STRING, description: "O que foi feito (tente adivinhar a categoria exata no banco, ex: 'Limpeza', 'Louça', 'Lixo')" },
                                 usuario: { type: Type.STRING, description: "Quem executou a ação ('Roger' ou 'Juliana')" },
-                                data_hora: { type: Type.STRING, description: "Quando foi feito (ex: 'agora', 'há 5 min', 'ontem às 20h')" }
+                                data_hora: { type: Type.STRING, description: "Quando foi feito (ex: 'agora', 'há 5 min', 'ontem às 20h')" },
+                                confirmacao_necessaria: { type: Type.BOOLEAN, description: "Se a tarefa exata falada NÃO puder ser deduzida com certeza dentre as clássicas, defina como true." },
+                                dificuldade: { type: Type.INTEGER, description: "A dificuldade da tarefa (1 a 5), se o usuário tiver informado. Se não informou, deixe ausente." }
                             },
-                            required: ["nome_tarefa", "usuario", "data_hora"]
+                            required: ["nome_tarefa", "usuario", "data_hora", "confirmacao_necessaria"]
                         }
                     },
                     {
-                        name: 'consultar_status_tarefa',
-                        description: 'Consulta o banco de dados para saber quando uma tarefa precisa ser feita, ou sua data de vencimento.',
+                        name: 'enviar_alerta',
+                        description: 'Envia uma mensagem para o mural de alertas para avisar o parceiro sobre algo.',
                         parameters: {
                             type: Type.OBJECT,
                             properties: {
-                                nome_tarefa: { type: Type.STRING, description: "O nome da tarefa que o usuário está perguntando. (ex: 'Rancho', 'Lixo', 'Limpeza')" }
+                                mensagem: { type: Type.STRING, description: "A mensagem a ser exibida no mural." },
+                                de_usuario: { type: Type.STRING, description: "Quem enviou o alerta ('Roger' ou 'Juliana')." }
                             },
-                            required: ["nome_tarefa"]
+                            required: ["mensagem", "de_usuario"]
                         }
                     }
                 ]
@@ -72,10 +75,36 @@ export async function generateChatResponse(
         if (call.name === 'registrar_tarefa') {
             const args = call.args;
             if (onRegistrarTarefa) {
-                onRegistrarTarefa(args);
+                const handledResult = await Promise.resolve(onRegistrarTarefa(args));
+                
+                contents.push({
+                    role: 'model',
+                    parts: [{ functionCall: call }]
+                });
+                contents.push({
+                    role: 'user',
+                    parts: [{
+                        functionResponse: {
+                            name: "registrar_tarefa",
+                            response: { result: handledResult || "Status unknown" }
+                        }
+                    }]
+                });
+                
+                const finalResponse = await ai.models.generateContent({
+                     model: 'gemini-2.5-flash',
+                     contents,
+                     config: { systemInstruction } 
+                });
+                return finalResponse.text || "Tarefa processada.";
+            }
+            return "Ok, a tarefa seria registrada.";
+        } else if (call.name === 'enviar_alerta') {
+            const args = call.args;
+            if (onEnviarAlerta) {
+                onEnviarAlerta(args);
             }
             
-            // Retorna o resultado da função para o modelo gerar a resposta final
             contents.push({
                 role: 'model',
                 parts: [{ functionCall: call }]
@@ -84,7 +113,7 @@ export async function generateChatResponse(
                 role: 'user',
                 parts: [{
                     functionResponse: {
-                        name: "registrar_tarefa",
+                        name: "enviar_alerta",
                         response: { success: true }
                     }
                 }]
@@ -95,34 +124,7 @@ export async function generateChatResponse(
                  contents,
                  config: { systemInstruction } 
             });
-            return finalResponse.text || "Feito. A tarefa foi registrada.";
-        } else if (call.name === 'consultar_status_tarefa') {
-            const args = call.args;
-            let queryResult = "A tarefa não foi encontrada no banco de dados, ou não há informações no momento.";
-            if (onConsultarTarefa) {
-                queryResult = await Promise.resolve(onConsultarTarefa(args));
-            }
-            
-            contents.push({
-                role: 'model',
-                parts: [{ functionCall: call }]
-            });
-            contents.push({
-                role: 'user',
-                parts: [{
-                    functionResponse: {
-                        name: "consultar_status_tarefa",
-                        response: { status_texto: queryResult }
-                    }
-                }]
-            });
-            
-            const finalResponse = await ai.models.generateContent({
-                 model: 'gemini-2.5-flash',
-                 contents,
-                 config: { systemInstruction } 
-            });
-            return finalResponse.text || "Consultei os status solicitados.";
+            return finalResponse.text || "Alerta enviado com sucesso.";
         }
     }
 

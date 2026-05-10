@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { Eye, EyeOff, LogOut, Sparkles, User, Utensils, Droplets, Trash2, Plus, X, Shirt, ShoppingCart, Dog, Bed, Coffee, Car, Leaf, Settings, AlertCircle, Save, Download, Home, Calendar, Bell, Target, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Eye, EyeOff, LogOut, Sparkles, User, Utensils, Droplets, Trash2, Plus, X, Shirt, ShoppingCart, Dog, Bed, Coffee, Car, Leaf, Settings, AlertCircle, Save, Download, Home, Calendar, Bell, Target, ChevronDown, ChevronUp, Bot } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { generateChatResponse, type ChatMessage } from './services/gemini';
 import { collection, onSnapshot, query, orderBy, addDoc, updateDoc, doc, serverTimestamp, setDoc, deleteDoc } from 'firebase/firestore';
@@ -78,8 +78,16 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
 
   const [isPartnerScoreVisible, setIsPartnerScoreVisible] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<any[]>([]);
   const [historyFilter, setHistoryFilter] = useState<'Tudo' | 'Roger' | 'Juliana'>('Tudo');
   const [tasks, setTasks] = useState<TaskDef[]>([]);
+
+  // Chat State
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isChatting, setIsChatting] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Dashboard State
   const [dashboardTimeFilter, setDashboardTimeFilter] = useState<'Dia' | 'Semana' | 'Mês'>('Dia');
@@ -106,6 +114,82 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
     }
     setDeleteConfirmation(null);
   };
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim()) return;
+    const msg = chatInput.trim();
+    setChatInput('');
+    setIsChatting(true);
+    setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', text: msg }]);
+
+    try {
+        const responseText = await generateChatResponse(
+            user,
+            messages,
+            msg,
+            async (dados) => {
+                if (dados.confirmacao_necessaria) {
+                    return `Não encontrei a categoria "${dados.nome_tarefa}". Deseja que eu a cadastre com qual dificuldade (1 a 5)?`;
+                }
+                
+                // If it's a new task creation request within registrar_tarefa!
+                if (dados.dificuldade) {
+                    // Try to guess a good icon since it's missing (or default)
+                    await addDoc(collection(db, 'tasks'), {
+                        nome_tarefa: dados.nome_tarefa,
+                        icone: 'Sparkles', // default
+                        pontos: dados.dificuldade,
+                        recorrencia_dias: 0
+                    });
+                    
+                    await addDoc(collection(db, "logs"), {
+                        user: dados.usuario || user,
+                        action: dados.nome_tarefa,
+                        points: dados.dificuldade,
+                        timestamp: serverTimestamp(),
+                        status: 'ativo'
+                    });
+                    return `Criei a categoria "${dados.nome_tarefa}" com dificuldade ${dados.dificuldade} e já registrei no placar!`;
+                }
+
+                // Normal registration
+                const foundTask = tasks.find(t => t.nome_tarefa.toLowerCase() === dados.nome_tarefa?.toLowerCase());
+                if (!foundTask) {
+                    return `Não encontrei a tarefa "${dados.nome_tarefa}" na sua lista atual. Deseja que eu a cadastre com qual dificuldade (1 a 5)?`;
+                }
+                
+                await addDoc(collection(db, "logs"), {
+                    user: dados.usuario || user,
+                    action: foundTask.nome_tarefa,
+                    points: foundTask.pontos,
+                    timestamp: serverTimestamp(),
+                    status: 'ativo'
+                });
+                return `Pronto, registrei a tarefa e adicionei os ${foundTask.pontos} pontos!`;
+            },
+            async (dados) => {
+                await addDoc(collection(db, "alerts"), {
+                    message: dados.mensagem,
+                    from_user: dados.de_usuario || user,
+                    timestamp: serverTimestamp()
+                });
+            }
+        );
+        
+        setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: responseText }]);
+    } catch (e) {
+        console.error("Erro no chat", e);
+        setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: 'Desculpe, tive um problema de comunicação. Tente novamente.' }]);
+    } finally {
+        setIsChatting(false);
+    }
+  };
+
+  useEffect(() => {
+     if (isChatOpen && messagesEndRef.current) {
+         messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+     }
+  }, [messages, isChatOpen]);
 
   const [toastMessage, setToastMessage] = useState<{title: string, body: string} | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -192,9 +276,25 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
        console.error("Erro ao sincronizar logs Firestore:", error);
     });
     
+    // Subscribe to alerts collection
+    const qAlerts = query(collection(db, 'alerts'), orderBy('timestamp', 'desc'));
+    const unsubscribeAlerts = onSnapshot(qAlerts, (snapshot) => {
+       const newAlerts: any[] = [];
+       snapshot.forEach(docSnap => {
+          newAlerts.push({
+             id: docSnap.id,
+             ...docSnap.data(),
+          });
+       });
+       setAlerts(newAlerts);
+    }, (error) => {
+       console.error("Erro ao sincronizar alerts Firestore:", error);
+    });
+    
     return () => {
         unsubscribeTasks();
         unsubscribeLogs();
+        unsubscribeAlerts();
     };
   }, []);
 
@@ -353,7 +453,7 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
                    onClick={() => setExpandedDashboardSection(prev => prev === 'placar' ? null : 'placar')}
                 >
                    <div className="flex items-center gap-2">
-                      <h2 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Pontos & Ações</h2>
+                       <h2 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Pontos & Ações</h2>
                    </div>
                    {expandedDashboardSection === 'placar' ? (
                        <div className="flex bg-gray-200/50 p-0.5 rounded-lg">
@@ -377,6 +477,7 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
                 <AnimatePresence>
                 {expandedDashboardSection === 'placar' && (
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                
                 <div className="flex gap-3 px-3">
                   {/* Esquerda: Pontos */}
                   <div className="w-[30%] flex-shrink-0 flex flex-col justify-between border-r border-gray-100 pr-2 py-1">
@@ -533,22 +634,98 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
         )}
 
         {currentTab === 'planejamento' && (
-           <motion.div key="planejamento" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-full items-center justify-center text-center p-6">
-              <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center mb-4 border border-gray-100">
-                 <span className="text-2xl">🛠️</span>
+           <motion.div key="planejamento" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-full">
+              <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/80 sticky top-0 z-20 flex items-center gap-2">
+                 <div className="w-6 h-6 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-500">
+                    <Bot className="w-3.5 h-3.5" />
+                 </div>
+                 <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Home AI</h2>
               </div>
-              <h2 className="text-lg font-medium text-gray-800 mb-1">Em Construção</h2>
-              <p className="text-xs text-gray-500 max-w-[200px]">A área de planejamento familiar estará disponível nas próximas versões.</p>
+              
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/30 hide-scrollbar pb-24 flex flex-col">
+                 <div className="flex-1 flex flex-col justify-end min-h-full">
+                     {messages.length === 0 ? (
+                        <div className="text-center py-6 my-auto">
+                           <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-4 border border-gray-100 mx-auto shadow-sm">
+                              <Bot className="w-8 h-8 text-indigo-500" strokeWidth={1.5} />
+                           </div>
+                           <h2 className="text-lg font-medium text-gray-800 mb-1">Como posso ajudar?</h2>
+                           <p className="text-xs text-gray-500 max-w-[200px] mx-auto">Ex: "lavei a louça", "avise o Roger que o lixo encheu"</p>
+                        </div>
+                     ) : (
+                        <div className="space-y-3">
+                           {messages.map(m => (
+                              <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                  <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm font-medium leading-relaxed ${m.role === 'user' ? 'bg-indigo-500 text-white rounded-br-sm' : 'bg-white border border-gray-100 text-gray-700 shadow-sm rounded-bl-sm'}`}>
+                                     {m.text}
+                                  </div>
+                              </div>
+                           ))}
+                           {isChatting && (
+                              <div className="flex justify-start">
+                                 <div className="bg-white border border-gray-100 px-4 py-3 rounded-2xl rounded-bl-sm shadow-sm flex items-center gap-1.5 text-gray-400">
+                                    <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" />
+                                    <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '0.15s' }} />
+                                    <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '0.3s' }} />
+                                 </div>
+                              </div>
+                           )}
+                        </div>
+                     )}
+                     <div ref={messagesEndRef} className="h-4" />
+                 </div>
+              </div>
+              
+              <div className="p-3 border-t border-gray-100 bg-white sticky bottom-0 z-20">
+                  <div className="flex items-center gap-2 bg-gray-50 rounded-2xl p-1.5 border border-gray-100 focus-within:border-indigo-200 focus-within:ring-2 focus-within:ring-indigo-100/50 transition-all shadow-sm">
+                     <input 
+                        value={chatInput}
+                        onChange={e => setChatInput(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
+                        placeholder="Escreva sua mensagem..."
+                        className="flex-1 bg-transparent border-none text-sm text-gray-800 px-3 py-2 flex-shrink min-w-0 focus:outline-none placeholder:text-gray-400 font-medium"
+                     />
+                     <button 
+                        disabled={!chatInput.trim() || isChatting}
+                        onClick={handleSendMessage}
+                        className="w-10 h-10 rounded-xl bg-indigo-500 text-white flex items-center justify-center shrink-0 disabled:opacity-50 shadow-md transition-all active:scale-95"
+                     >
+                        <Bot className="w-5 h-5" />
+                     </button>
+                  </div>
+              </div>
            </motion.div>
         )}
 
         {currentTab === 'alertas' && (
-           <motion.div key="alertas" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-full items-center justify-center text-center p-6">
-              <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center mb-4 border border-gray-100">
-                 <span className="text-2xl">🛠️</span>
+           <motion.div key="alertas" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-full">
+              <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/80 sticky top-0 z-20">
+                 <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Mural de Alertas</h2>
               </div>
-              <h2 className="text-lg font-medium text-gray-800 mb-1">Em Construção</h2>
-              <p className="text-xs text-gray-500 max-w-[200px]">O mural interativo de alertas será implementado em breve.</p>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-24 hide-scrollbar">
+                 {alerts.length > 0 ? alerts.map((alerta) => (
+                    <div key={alerta.id} className="bg-yellow-50/50 border border-yellow-100/60 p-4 rounded-2xl relative shadow-sm">
+                        <div className="flex items-start gap-3">
+                           <div className="w-8 h-8 rounded-full bg-yellow-100 flex items-center justify-center shrink-0 text-yellow-600">
+                               <Bell className="w-4 h-4" />
+                           </div>
+                           <div className="flex-1 pt-0.5 min-w-0">
+                               <p className="text-sm text-gray-800 font-medium leading-relaxed">{alerta.message}</p>
+                               <p className="text-[10px] font-semibold tracking-wider uppercase text-gray-400 mt-2">
+                                   DE: {alerta.from_user} • {alerta.timestamp?.toDate ? alerta.timestamp.toDate().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'agora'}
+                               </p>
+                           </div>
+                        </div>
+                    </div>
+                 )) : (
+                    <div className="flex flex-col items-center justify-center text-center py-10">
+                        <div className="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center mb-3">
+                           <Bell className="w-5 h-5 text-gray-400" />
+                        </div>
+                        <p className="text-sm text-gray-500 font-medium">Nenhum alerta no momento.</p>
+                    </div>
+                 )}
+              </div>
            </motion.div>
         )}
 
@@ -725,6 +902,8 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
       </AnimatePresence>
       </main>
 
+
+
       {/* Tabs Bottom Navigation */}
       <nav className="absolute bottom-0 inset-x-0 h-[70px] bg-white border-t border-gray-100 flex items-center justify-around px-2 z-[100] rounded-t-3xl shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.05)]">
         <button onClick={() => setCurrentTab('dashboard')} className={`flex flex-col items-center justify-center gap-1 w-14 h-full ${currentTab === 'dashboard' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
@@ -736,8 +915,8 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
            <span className="text-[9px] font-medium tracking-wide">Histórico</span>
         </button>
         <button onClick={() => setCurrentTab('planejamento')} className={`flex flex-col items-center justify-center gap-1 w-14 h-full ${currentTab === 'planejamento' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
-           <Target className="w-5 h-5" strokeWidth={currentTab === 'planejamento' ? 2.5 : 2} />
-           <span className="text-[9px] font-medium tracking-wide">Planos</span>
+           <Bot className="w-5 h-5" strokeWidth={currentTab === 'planejamento' ? 2.5 : 2} />
+           <span className="text-[9px] font-medium tracking-wide">Assistente</span>
         </button>
         <button onClick={() => setCurrentTab('alertas')} className={`flex flex-col items-center justify-center gap-1 w-14 h-full ${currentTab === 'alertas' ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
            <Bell className="w-5 h-5" strokeWidth={currentTab === 'alertas' ? 2.5 : 2} />
@@ -836,7 +1015,7 @@ function Gateway({ onSelectUser }: { onSelectUser: (user: UserProfile) => void }
       >
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white shadow-sm mb-6 border border-gray-100">
-            <Sparkles className="w-7 h-7 text-indigo-500" strokeWidth={1.5} />
+            <Bot className="w-7 h-7 text-indigo-500" strokeWidth={1.5} />
           </div>
           <h1 className="text-[32px] font-light tracking-tight text-gray-900 mb-2 leading-none">Home AI</h1>
           <p className="text-gray-400 font-medium text-xs tracking-[0.15em] uppercase">Autenticação Segura</p>
