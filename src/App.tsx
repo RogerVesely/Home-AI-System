@@ -440,10 +440,10 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 px-4 pb-4 pt-2 flex flex-col gap-3 z-10 min-h-0 overflow-hidden">
+      <main className="flex-1 px-4 pb-[84px] pt-2 flex flex-col gap-3 z-10 min-h-0 overflow-hidden">
         <AnimatePresence mode="wait">
         {currentTab === 'dashboard' && (
-           <motion.div key="dashboard" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex flex-col gap-4 flex-1 overflow-y-auto hide-scrollbar pb-24">
+           <motion.div key="dashboard" initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-10 }} className="flex flex-col gap-4 flex-1 overflow-y-auto hide-scrollbar pb-4">
               {/* Card Superior (Placar + Ações Rápidas) */}
               <section className={`enamel-panel relative overflow-hidden shrink-0 flex flex-col transition-all duration-300 ${expandedDashboardSection === 'placar' ? 'pb-3' : 'cursor-pointer hover:border-gray-300'}`}>
                 <div className="absolute top-10 -left-12 w-32 h-32 opacity-[0.06] blur-2xl pointer-events-none rounded-full" style={{ backgroundColor: activeColor }} />
@@ -642,7 +642,7 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
                  <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Home AI</h2>
               </div>
               
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/30 hide-scrollbar pb-24 flex flex-col">
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/30 hide-scrollbar pb-4 flex flex-col">
                  <div className="flex-1 flex flex-col justify-end min-h-full">
                      {messages.length === 0 ? (
                         <div className="text-center py-6 my-auto">
@@ -702,7 +702,7 @@ function Dashboard({ user, onLogout }: { user: NonNullable<UserProfile>; onLogou
               <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/80 sticky top-0 z-20">
                  <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Mural de Alertas</h2>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-24 hide-scrollbar">
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-4 hide-scrollbar">
                  {alerts.length > 0 ? alerts.map((alerta) => (
                     <div key={alerta.id} className="bg-yellow-50/50 border border-yellow-100/60 p-4 rounded-2xl relative shadow-sm">
                         <div className="flex items-start gap-3">
